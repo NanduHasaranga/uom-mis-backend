@@ -11,6 +11,15 @@
   "monorepo": true,
   "root": "apps/api-gateway",
   "projects": {
+    "api-gateway": {
+      "type": "application",
+      "root": "apps/api-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/api-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
+      }
+    },
     "auth-service": {
       "type": "application",
       "root": "apps/auth-service",
@@ -29,13 +38,13 @@
         "tsConfigPath": "apps/notification-service/tsconfig.app.json"
       }
     },
-    "api-gateway": {
+    "user-management": {
       "type": "application",
-      "root": "apps/api-gateway",
+      "root": "apps/user-management",
       "entryFile": "main",
-      "sourceRoot": "apps/api-gateway/src",
+      "sourceRoot": "apps/user-management/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
+        "tsConfigPath": "apps/user-management/tsconfig.app.json"
       }
     }
   }
