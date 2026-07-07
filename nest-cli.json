@@ -29,6 +29,15 @@
         "tsConfigPath": "apps/auth/tsconfig.app.json"
       }
     },
+    "notification": {
+      "type": "application",
+      "root": "apps/notification",
+      "entryFile": "main",
+      "sourceRoot": "apps/notification/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/notification/tsconfig.app.json"
+      }
+    },
     "user-management": {
       "type": "application",
       "root": "apps/user-management",
