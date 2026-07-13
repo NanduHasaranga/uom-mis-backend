@@ -5,5 +5,8 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^@keycloak/keycloak-admin-client$": "<rootDir>/mocks/keycloak-admin-client.mock.js"
   }
 }
