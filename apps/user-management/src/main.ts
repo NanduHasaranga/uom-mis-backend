@@ -1,15 +1,29 @@
+import { config as loadDotenv } from 'dotenv';
+import { join } from 'path';
+
+// Must precede the AppModule import below — @RabbitSubscribe options read process.env at decoration time, before ConfigModule runs.
+loadDotenv({ path: join(process.cwd(), 'apps/user-management/.env') });
+
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { UserManagementModule } from './user-management.module';
-import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { AppModule } from './app.module';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
-  const user_management_app = await NestFactory.createMicroservice<MicroserviceOptions>(
-    UserManagementModule,
-    {
-      transport:Transport.TCP,
-      options:{host:'127.0.0.1',port:3003}
-    }
+  const app = await NestFactory.create(AppModule);
+  app.setGlobalPrefix('api/v1', { exclude: ['health'] });
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      forbidNonWhitelisted: true,
+    }),
   );
-  await user_management_app.listen();
+  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new LoggingInterceptor());
+
+  const port = process.env.PORT ?? 3000;
+  await app.listen(port);
 }
 bootstrap();
