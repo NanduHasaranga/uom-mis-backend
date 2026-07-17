@@ -20,10 +20,13 @@
     "test:e2e": "jest --config ./apps/api-gateway/test/jest-e2e.json"
   },
   "dependencies": {
+    "@golevelup/nestjs-rabbitmq": "^9.0.2",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/microservices": "^11.1.27",
     "@nestjs/platform-express": "^11.0.1",
+    "amqp-connection-manager": "^5.0.0",
+    "amqplib": "^2.0.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -69,7 +72,11 @@
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",
     "roots": [
-      "<rootDir>/apps/"
-    ]
+      "<rootDir>/apps/",
+      "<rootDir>/libs/"
+    ],
+    "moduleNameMapper": {
+      "^@app/rabbitmq(|/.*)$": "<rootDir>/libs/rabbitmq/src/$1"
+    }
   }
 }
