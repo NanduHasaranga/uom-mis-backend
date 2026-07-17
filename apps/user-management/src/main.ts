@@ -10,6 +10,8 @@ async function bootstrap() {
       options:{host:'127.0.0.1',port:3003}
     }
   );
+  // Gracefully close connections (DB, RabbitMQ, etc.) on process termination signals (SIGTERM/SIGINT)
+  user_management_app.enableShutdownHooks();
   await user_management_app.listen();
 }
 bootstrap();

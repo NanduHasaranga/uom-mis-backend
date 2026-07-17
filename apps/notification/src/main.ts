@@ -9,6 +9,7 @@ async function bootstrap() {
       options:{host:'127.0.0.1',port:3002}
     }
   );
+  notification_app.enableShutdownHooks();
   await notification_app.listen();
 }
 bootstrap();

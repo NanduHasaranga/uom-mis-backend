@@ -11,6 +11,7 @@ async function bootstrap() {
       options: { host: '127.0.0.1', port: 3001 },
     }
   );
+  auth_app.enableShutdownHooks();
   await auth_app.listen();
 }
 bootstrap();

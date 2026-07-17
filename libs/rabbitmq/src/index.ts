@@ -1,5 +1,3 @@
-export * from './rabbitmq.module';
-export * from './rabbitmq.service';
 export * from './contracts/constants/exchanges.constants';
 export * from './contracts/constants/queues.constants';
 export * from './contracts/constants/routing-keys.constants';
