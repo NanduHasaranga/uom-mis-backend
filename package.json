@@ -22,7 +22,6 @@
     "test:registration": "node scripts/test-registration-flow.js"
   },
   "dependencies": {
-    "@keycloak/keycloak-admin-client": "^26.6.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",

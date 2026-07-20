@@ -11,9 +11,6 @@ export class AuthAccount {
   @Prop({ required: true, unique: true })
   email: string;
 
-  @Prop({ required: false })
-  keycloakUserId?: string;
-
   @Prop({ required: true })
   ldapDn: string;
 

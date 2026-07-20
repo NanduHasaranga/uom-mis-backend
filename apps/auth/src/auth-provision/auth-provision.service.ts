@@ -1,10 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { randomBytes } from 'crypto';
 import { Model } from 'mongoose';
 
-import { KeycloakAdminService } from '../keycloak/keycloak-admin.service';
 import { LdapService } from '../ldap/ldap.service';
 import { UserProvisionRequestedDto } from './dto/user-provision-requested.dto';
 import {
@@ -18,10 +16,8 @@ export class AuthProvisionService {
   private readonly logger = new Logger(AuthProvisionService.name);
 
   constructor(
-    private readonly keycloakAdminService: KeycloakAdminService,
     private readonly ldapService: LdapService,
     private readonly eventPublisherService: EventPublisherService,
-    private readonly configService: ConfigService,
 
     @InjectModel(AuthAccount.name)
     private readonly authAccountModel: Model<AuthAccountDocument>,
@@ -66,7 +62,6 @@ export class AuthProvisionService {
         correlationId: event.correlationId,
         userId: event.userId,
         email: event.email,
-        keycloakUserId: existingAuthAccount.keycloakUserId,
         role: existingAuthAccount.role,
       });
 
@@ -95,30 +90,10 @@ export class AuthProvisionService {
         temporaryPassword,
       });
 
-      let keycloakUserId: string | undefined;
-
-      if (this.configService.get<boolean>('KEYCLOAK_PROVISIONING_ENABLED')) {
-        try {
-          keycloakUserId = await this.keycloakAdminService.createUserIfNotExists({
-            email: event.email,
-            fullName: event.fullName,
-            role: event.role,
-          });
-        } catch (error) {
-          this.logger.warn({
-            message: 'Keycloak provisioning failed, continuing with LDAP-only account',
-            correlationId: event.correlationId,
-            userId: event.userId,
-            error: error.message,
-          });
-        }
-      }
-
       await this.authAccountModel.create({
         userId: event.userId,
         email: event.email,
         ldapDn,
-        keycloakUserId,
         role: event.role,
         status: 'ACTIVE',
       });
@@ -127,7 +102,6 @@ export class AuthProvisionService {
         correlationId: event.correlationId,
         userId: event.userId,
         email: event.email,
-        keycloakUserId,
         role: event.role,
       });
 
@@ -136,7 +110,6 @@ export class AuthProvisionService {
         correlationId: event.correlationId,
         userId: event.userId,
         ldapDn,
-        keycloakUserId,
       });
     } catch (error) {
       await this.eventPublisherService.publishUserProvisionFailed({

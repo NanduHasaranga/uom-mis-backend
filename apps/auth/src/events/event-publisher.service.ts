@@ -13,7 +13,6 @@ export class EventPublisherService {
     correlationId: string;
     userId: string;
     email: string;
-    keycloakUserId?: string;
     role: string;
   }) {
     this.clientProxy.emit('user.provisioned', {
