@@ -106,7 +106,7 @@ async function ldapSetPassword(dn, plainPassword) {
         modification: new Attribute({ type: 'userPassword', values: [plainPassword] }),
       }),
     ),
-  );test-registration-flow.js
+  );
 }
 
 async function ldapCanBind(dn, password) {
