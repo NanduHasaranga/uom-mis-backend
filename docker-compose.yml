@@ -26,6 +26,16 @@ services:
     depends_on:
       - openldap
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: uom-mis-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
 volumes:
   ldap_data:
   ldap_config:
+  rabbitmq_data:
