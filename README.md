@@ -5,6 +5,23 @@ NestJS monorepo for the University of Moratuwa MIS backend. Apps live under `app
 - **`apps/auth`** — user registration/provisioning against LDAP. Implemented and documented below.
 - `apps/api-gateway`, `apps/notification`, `apps/user-management` — owned by other team members, in progress.
 
+## Architecture
+
+Authentication is centralized at the API gateway, not spread across services:
+
+```
+Client ──► Kong (API Gateway) ──auth check──► Keycloak ──federation──► LDAP
+              │
+              └──(post-auth, proxied)──► user-management / notification / etc.
+```
+
+- **Kong** is the Policy Enforcement Point — redirects unauthenticated requests to Keycloak's hosted login (OIDC Authorization Code flow) and validates tokens on every request before proxying.
+- **Keycloak** authenticates users by delegating the credential check to **LDAP** (User Federation) — it doesn't own passwords itself.
+- **`apps/auth`** only handles user **provisioning**, not authentication: it consumes `user.provision.requested` events from RabbitMQ, writes new identities to LDAP, and records them in MongoDB. It has no login endpoint, no JWT logic, and never talks to Keycloak — Keycloak discovers provisioned users lazily via LDAP federation, the first time they log in through Kong.
+- Other backend services trust Kong's enforcement and contain no auth code of their own.
+
+See `AUTH_REGISTRATION_MODULE_REPORT.md` for the full write-up of the provisioning pipeline.
+
 ## Prerequisites
 
 - Node.js (v22+)
