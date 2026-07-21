@@ -1,13 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
+import { Injectable } from '@nestjs/common';
+import { AmqpConnection } from '@golevelup/nestjs-rabbitmq';
+import { RABBITMQ_EXCHANGES, RABBITMQ_ROUTING_KEYS } from '@app/rabbitmq';
 import { randomUUID } from 'crypto';
 
 @Injectable()
 export class EventPublisherService {
-  constructor(
-    @Inject('RABBITMQ_CLIENT')
-    private readonly clientProxy: ClientProxy,
-  ) {}
+  constructor(private readonly amqpConnection: AmqpConnection) {}
 
   async publishUserProvisioned(payload: {
     correlationId: string;
@@ -15,12 +13,17 @@ export class EventPublisherService {
     email: string;
     role: string;
   }) {
-    this.clientProxy.emit('user.provisioned', {
-      eventId: randomUUID(),
-      eventType: 'UserProvisioned',
-      ...payload,
-      publishedAt: new Date().toISOString(),
-    });
+    await this.amqpConnection.publish(
+      RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
+      RABBITMQ_ROUTING_KEYS.USER_PROVISIONED,
+      {
+        eventId: randomUUID(),
+        eventType: 'UserProvisioned',
+        ...payload,
+        publishedAt: new Date().toISOString(),
+      },
+      { persistent: true },
+    );
   }
 
   async publishUserProvisionFailed(payload: {
@@ -29,11 +32,16 @@ export class EventPublisherService {
     email: string;
     reason: string;
   }) {
-    this.clientProxy.emit('user.provision.failed', {
-      eventId: randomUUID(),
-      eventType: 'UserProvisionFailed',
-      ...payload,
-      publishedAt: new Date().toISOString(),
-    });
+    await this.amqpConnection.publish(
+      RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
+      RABBITMQ_ROUTING_KEYS.USER_PROVISION_FAILED,
+      {
+        eventId: randomUUID(),
+        eventType: 'UserProvisionFailed',
+        ...payload,
+        publishedAt: new Date().toISOString(),
+      },
+      { persistent: true },
+    );
   }
 }

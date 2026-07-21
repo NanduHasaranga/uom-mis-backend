@@ -6,7 +6,6 @@ export const envValidationSchema = Joi.object({
   MONGO_URI: Joi.string().required(),
 
   RABBITMQ_URL: Joi.string().required(),
-  AUTH_QUEUE: Joi.string().required(),
 
   LDAP_URL: Joi.string().required(),
   LDAP_BASE_DN: Joi.string().required(),

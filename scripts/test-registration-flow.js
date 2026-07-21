@@ -4,8 +4,9 @@ const { Client, Attribute, Change } = require('ldapts');
 const { randomUUID } = require('crypto');
 
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
-const REQUEST_QUEUE = process.env.AUTH_QUEUE || 'auth.user-provision.queue';
-const RESPONSE_QUEUE = 'user-management.events.queue';
+const REQUEST_EXCHANGE = 'user-management.events.exchange';
+const RESPONSE_EXCHANGE = 'auth.events.exchange';
+const RESPONSE_ROUTING_KEYS = ['user.provisioned', 'user.provision.failed'];
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/auth-service';
 const LDAP_URL = process.env.LDAP_URL || 'ldap://localhost:389';
 const LDAP_USERS_OU = process.env.LDAP_USERS_OU || 'ou=users,dc=uom-mis,dc=local';
@@ -25,14 +26,14 @@ function fail(name, detail) {
   console.log(`FAIL  ${name}${detail ? `\n      ${detail}` : ''}`);
 }
 
-async function publishEvent(pattern, data) {
+async function publishEvent(routingKey, data) {
   const correlationId = data.correlationId || randomUUID();
   const fullData = { ...data, correlationId };
 
   const connection = await amqp.connect(RABBITMQ_URL);
   const channel = await connection.createChannel();
-  await channel.assertQueue(REQUEST_QUEUE, { durable: true });
-  channel.sendToQueue(REQUEST_QUEUE, Buffer.from(JSON.stringify({ pattern, data: fullData })), {
+  await channel.assertExchange(REQUEST_EXCHANGE, 'direct', { durable: true });
+  channel.publish(REQUEST_EXCHANGE, routingKey, Buffer.from(JSON.stringify(fullData)), {
     persistent: true,
   });
   await channel.close();
@@ -42,14 +43,23 @@ async function publishEvent(pattern, data) {
 }
 
 // Matches responses by correlationId so stale/leftover messages from a
-// previous run never get misattributed to the current test.
-function waitForResponse(correlationId, timeoutMs = 15000) {
+// previous run never get misattributed to the current test. Binds its own
+// exclusive queue to the auth.events.exchange topic exchange *before*
+// invoking triggerFn() (which publishes the request) - topic exchanges don't
+// buffer messages for queues that aren't bound yet, so publishing first would
+// race against auth's response and lose it whenever auth replies quickly
+// (e.g. the dedup/validation-failure paths, which don't touch LDAP).
+function waitForResponse(triggerFn, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     amqp
       .connect(RABBITMQ_URL)
       .then(async (connection) => {
         const channel = await connection.createChannel();
-        await channel.assertQueue(RESPONSE_QUEUE, { durable: true });
+        await channel.assertExchange(RESPONSE_EXCHANGE, 'topic', { durable: true });
+        const { queue } = await channel.assertQueue('', { exclusive: true, autoDelete: true });
+        for (const routingKey of RESPONSE_ROUTING_KEYS) {
+          await channel.bindQueue(queue, RESPONSE_EXCHANGE, routingKey);
+        }
 
         let settled = false;
         const finish = async (result) => {
@@ -63,11 +73,13 @@ function waitForResponse(correlationId, timeoutMs = 15000) {
 
         const timer = setTimeout(() => finish(null), timeoutMs);
 
-        channel.consume(RESPONSE_QUEUE, (msg) => {
+        const correlationId = await triggerFn();
+
+        channel.consume(queue, (msg) => {
           if (!msg || settled) return;
           const parsed = JSON.parse(msg.content.toString());
           channel.ack(msg);
-          if (parsed?.data?.correlationId === correlationId) {
+          if (parsed?.correlationId === correlationId) {
             finish(parsed);
           }
           // else: stale message from an earlier run, discard and keep waiting
@@ -132,19 +144,20 @@ async function main() {
   const userId1 = `test-${randomUUID()}`;
   const email1 = `${userId1}@example.com`;
   {
-    const correlationId = await publishEvent('user.provision.requested', {
-      eventId: randomUUID(),
-      userId: userId1,
-      email: email1,
-      fullName: 'Alice Fernando',
-      role: 'student',
-      address: '10 Main St, Colombo',
-      regNumber: 'REG-TC1',
-    });
-    const response = await waitForResponse(correlationId);
+    const response = await waitForResponse(() =>
+      publishEvent('user.provision.requested', {
+        eventId: randomUUID(),
+        userId: userId1,
+        email: email1,
+        fullName: 'Alice Fernando',
+        role: 'student',
+        address: '10 Main St, Colombo',
+        regNumber: 'REG-TC1',
+      }),
+    );
 
-    if (response?.pattern === 'user.provisioned' && response.data.userId === userId1) {
-      pass('TC1a: happy path publishes user.provisioned', JSON.stringify(response.data));
+    if (response?.eventType === 'UserProvisioned' && response.userId === userId1) {
+      pass('TC1a: happy path publishes user.provisioned', JSON.stringify(response));
     } else {
       fail('TC1a: happy path publishes user.provisioned', JSON.stringify(response));
     }
@@ -180,15 +193,16 @@ async function main() {
     const beforeCount = beforeEntries.searchEntries.length;
     const beforeDocCount = await AuthAccount.countDocuments({ userId: userId1 });
 
-    const correlationId = await publishEvent('user.provision.requested', {
-      eventId: randomUUID(),
-      userId: userId1,
-      email: email1,
-      fullName: 'Alice Fernando',
-      role: 'student',
-      regNumber: 'REG-TC1',
-    });
-    const response = await waitForResponse(correlationId);
+    const response = await waitForResponse(() =>
+      publishEvent('user.provision.requested', {
+        eventId: randomUUID(),
+        userId: userId1,
+        email: email1,
+        fullName: 'Alice Fernando',
+        role: 'student',
+        regNumber: 'REG-TC1',
+      }),
+    );
 
     const afterEntries = await withAdminClient((client) =>
       client.search(LDAP_USERS_OU, { scope: 'one', filter: `(uid=${userId1})` }),
@@ -197,7 +211,7 @@ async function main() {
     const afterDocCount = await AuthAccount.countDocuments({ userId: userId1 });
 
     if (
-      response?.pattern === 'user.provisioned' &&
+      response?.eventType === 'UserProvisioned' &&
       afterCount === beforeCount &&
       afterDocCount === beforeDocCount
     ) {
@@ -213,18 +227,19 @@ async function main() {
   // TC3 - optional fields omitted (no address/regNumber) - role is staff, so regNumber isn't required
   const userId3 = `test-${randomUUID()}`;
   {
-    const correlationId = await publishEvent('user.provision.requested', {
-      eventId: randomUUID(),
-      userId: userId3,
-      email: `${userId3}@example.com`,
-      fullName: 'Nimal',
-      role: 'staff',
-    });
-    const response = await waitForResponse(correlationId);
+    const response = await waitForResponse(() =>
+      publishEvent('user.provision.requested', {
+        eventId: randomUUID(),
+        userId: userId3,
+        email: `${userId3}@example.com`,
+        fullName: 'Nimal',
+        role: 'staff',
+      }),
+    );
     const entry = await ldapFindUser(userId3);
 
     if (
-      response?.pattern === 'user.provisioned' &&
+      response?.eventType === 'UserProvisioned' &&
       entry &&
       !entry.postalAddress &&
       !entry.employeeNumber &&
@@ -242,13 +257,14 @@ async function main() {
     const userId4 = `test-${randomUUID()}`;
     const before = await AuthAccount.countDocuments({});
 
-    const correlationId = await publishEvent('user.provision.requested', {
-      eventId: randomUUID(),
-      userId: userId4,
-      fullName: 'No Email User',
-      role: 'staff',
-    });
-    const response = await waitForResponse(correlationId);
+    const response = await waitForResponse(() =>
+      publishEvent('user.provision.requested', {
+        eventId: randomUUID(),
+        userId: userId4,
+        fullName: 'No Email User',
+        role: 'staff',
+      }),
+    );
     const after = await AuthAccount.countDocuments({});
     const entry = await ldapFindUser(userId4);
 
@@ -261,13 +277,13 @@ async function main() {
     }
 
     if (
-      response?.pattern === 'user.provision.failed' &&
-      /email/i.test(response.data.reason || '') &&
+      response?.eventType === 'UserProvisionFailed' &&
+      /email/i.test(response.reason || '') &&
       after === before &&
       !entry &&
       healthOk
     ) {
-      pass('TC4: invalid payload rejected by validation, no LDAP/Mongo record, service still healthy', JSON.stringify(response.data));
+      pass('TC4: invalid payload rejected by validation, no LDAP/Mongo record, service still healthy', JSON.stringify(response));
     } else {
       fail(
         'TC4: invalid payload rejected by validation, no LDAP/Mongo record, service still healthy',
@@ -302,24 +318,25 @@ async function main() {
     const userId6 = `test-${randomUUID()}`;
     const before = await AuthAccount.countDocuments({});
 
-    const correlationId = await publishEvent('user.provision.requested', {
-      eventId: randomUUID(),
-      userId: userId6,
-      email: `${userId6}@example.com`,
-      fullName: 'Student Missing Reg',
-      role: 'student',
-    });
-    const response = await waitForResponse(correlationId);
+    const response = await waitForResponse(() =>
+      publishEvent('user.provision.requested', {
+        eventId: randomUUID(),
+        userId: userId6,
+        email: `${userId6}@example.com`,
+        fullName: 'Student Missing Reg',
+        role: 'student',
+      }),
+    );
     const after = await AuthAccount.countDocuments({});
     const entry = await ldapFindUser(userId6);
 
     if (
-      response?.pattern === 'user.provision.failed' &&
-      /regNumber/i.test(response.data.reason || '') &&
+      response?.eventType === 'UserProvisionFailed' &&
+      /regNumber/i.test(response.reason || '') &&
       after === before &&
       !entry
     ) {
-      pass('TC6: student without regNumber rejected by validation', JSON.stringify(response.data));
+      pass('TC6: student without regNumber rejected by validation', JSON.stringify(response));
     } else {
       fail(
         'TC6: student without regNumber rejected by validation',

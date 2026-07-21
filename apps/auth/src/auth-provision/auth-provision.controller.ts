@@ -1,10 +1,9 @@
 import { Controller, Logger } from '@nestjs/common';
 import {
-  Ctx,
-  EventPattern,
-  Payload,
-  RmqContext,
-} from '@nestjs/microservices';
+  RabbitSubscribe,
+  MessageHandlerErrorBehavior,
+} from '@golevelup/nestjs-rabbitmq';
+import { RABBITMQ_EXCHANGES, RABBITMQ_QUEUES, RABBITMQ_ROUTING_KEYS } from '@app/rabbitmq';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { AuthProvisionService } from './auth-provision.service';
@@ -20,14 +19,14 @@ export class AuthProvisionController {
     private readonly eventPublisherService: EventPublisherService,
   ) {}
 
-  @EventPattern('user.provision.requested')
-  async handleUserProvisionRequested(
-    @Payload() rawPayload: object,
-    @Ctx() context: RmqContext,
-  ) {
-    const channel = context.getChannelRef();
-    const message = context.getMessage();
-
+  @RabbitSubscribe({
+    exchange: RABBITMQ_EXCHANGES.USER_MANAGEMENT_EVENTS.name,
+    routingKey: RABBITMQ_ROUTING_KEYS.USER_PROVISION_REQUESTED,
+    queue: RABBITMQ_QUEUES.AUTH_USER_PROVISION_REQUESTED.name,
+    queueOptions: { durable: true },
+    errorBehavior: MessageHandlerErrorBehavior.NACK,
+  })
+  async handleUserProvisionRequested(rawPayload: object) {
     const payload = plainToInstance(UserProvisionRequestedDto, rawPayload, {
       excludeExtraneousValues: false,
     });
@@ -53,14 +52,11 @@ export class AuthProvisionController {
         reason,
       });
 
-      channel.nack(message, false, false);
-      return;
+      throw new Error(reason);
     }
 
     try {
       await this.authProvisionService.provisionUser(payload);
-
-      channel.ack(message);
     } catch (error) {
       this.logger.error({
         message: 'Failed to provision user',
@@ -69,7 +65,7 @@ export class AuthProvisionController {
         error: error.message,
       });
 
-      channel.nack(message, false, false);
+      throw error;
     }
   }
 }
