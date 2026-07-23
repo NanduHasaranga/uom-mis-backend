@@ -36,7 +36,11 @@ export class RolesGuard implements CanActivate {
     try {
       payload = await this.verifier.verify(token);
     } catch (err) {
-      if (err instanceof UnauthorizedException || err instanceof ForbiddenException) throw err;
+      if (
+        err instanceof UnauthorizedException ||
+        err instanceof ForbiddenException
+      )
+        throw err;
       throw new UnauthorizedException('Invalid or expired token');
     }
     if (!required.some((role) => payload.roles.includes(role))) {
