@@ -14,9 +14,9 @@ export class UserCreatedConsumer {
   ) {}
 
   @RabbitSubscribe({
-    exchange: RABBITMQ_EXCHANGES.USER_MANAGEMENT_EVENTS.name,
-    routingKey: RABBITMQ_ROUTING_KEYS.USER_CREATED,
-    queue: RABBITMQ_QUEUES.AUTH_USER_CREATED.name,
+    exchange: RABBITMQ_EXCHANGES.USER_MGMT_COMMANDS.name,
+    routingKey: RABBITMQ_ROUTING_KEYS.USER_REGISTER,
+    queue: RABBITMQ_QUEUES.AUTH_USER_REGISTER.name,
     queueOptions: { durable: true },
     errorBehavior: MessageHandlerErrorBehavior.NACK,
   })
@@ -30,8 +30,6 @@ export class UserCreatedConsumer {
       occurredAt: new Date().toISOString(),
     });
 
-    if (result.credentials) {
-      await this.credentialsIssuedPublisher.publish(result.credentials);
-    }
+    await this.credentialsIssuedPublisher.publish(result.credentials);
   }
 }

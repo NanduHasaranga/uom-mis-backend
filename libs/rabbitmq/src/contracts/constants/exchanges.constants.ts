@@ -5,13 +5,13 @@ export interface ExchangeDefinition {
 }
 
 export const RABBITMQ_EXCHANGES = {
-  USER_MANAGEMENT_EVENTS: {
-    name: 'user-management.events.exchange',
+  USER_MGMT_COMMANDS: {
+    name: 'user-mgmt.commands',
     type: 'direct',
     durable: true,
   },
   AUTH_EVENTS: {
-    name: 'auth.events.exchange',
+    name: 'auth.events',
     type: 'topic',
     durable: true,
   },

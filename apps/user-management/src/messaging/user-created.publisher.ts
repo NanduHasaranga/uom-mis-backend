@@ -8,8 +8,8 @@ export class UserCreatedPublisher {
 
     publish(event: UserCreatedEvent): Promise<Boolean> {
         return this.amqpConnection.publish(
-            RABBITMQ_EXCHANGES.USER_MANAGEMENT_EVENTS.name,
-            RABBITMQ_ROUTING_KEYS.USER_CREATED,
+            RABBITMQ_EXCHANGES.USER_MGMT_COMMANDS.name,
+            RABBITMQ_ROUTING_KEYS.USER_REGISTER,
             event,
             { persistent: true },
         );

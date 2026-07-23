@@ -4,7 +4,7 @@ import { AuthRegistrationStatus, AuthCredentialsIssuedEvent, UserCreatedEvent } 
 
 interface LdapRegistrationResult {
   status: AuthRegistrationStatus;
-  credentials?: AuthCredentialsIssuedEvent;
+  credentials: AuthCredentialsIssuedEvent;
 }
 
 @Injectable()
@@ -17,16 +17,18 @@ export class AuthService {
     // TODO: bind to LDAP and create the actual directory entry
     // TODO: generate a strong random password per the org's password policy
     // TODO: build the real signup link (needs a configured base URL)
+    const status = AuthRegistrationStatus.SUCCESS;
     const temporaryPassword = randomUUID().slice(0, 12);
 
     return {
-      status: AuthRegistrationStatus.SUCCESS,
+      status,
       credentials: {
         userId: event.userId,
+        status,
         username: event.username,
-        password: temporaryPassword,
         email: event.email,
-        signupLink: `https://example.com/signup/${event.userId}`,
+        password: status === AuthRegistrationStatus.SUCCESS ? temporaryPassword : undefined,
+        signupLink: status === AuthRegistrationStatus.SUCCESS ? `https://example.com/signup/${event.userId}` : undefined,
         occurredAt: new Date().toISOString(),
       },
     };

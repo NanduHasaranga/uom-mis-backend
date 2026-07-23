@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RabbitSubscribe, MessageHandlerErrorBehavior } from '@golevelup/nestjs-rabbitmq';
-import { RABBITMQ_EXCHANGES, RABBITMQ_QUEUES, RABBITMQ_ROUTING_KEYS, type AuthRegistrationStatusEvent } from '@app/rabbitmq';
+import { RABBITMQ_BINDING_KEYS, RABBITMQ_EXCHANGES, RABBITMQ_QUEUES, type AuthRegistrationStatusEvent } from '@app/rabbitmq';
 
 @Injectable()
 export class AuthStatusConsumer {
@@ -8,8 +8,8 @@ export class AuthStatusConsumer {
 
     @RabbitSubscribe({
         exchange: RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
-        routingKey: RABBITMQ_ROUTING_KEYS.AUTH_REGISTRATION_COMPLETED,
-        queue: RABBITMQ_QUEUES.USER_MANAGEMENT_AUTH_STATUS.name,
+        routingKey: RABBITMQ_BINDING_KEYS.AUTH_USER_MGMT_RESULT,
+        queue: RABBITMQ_QUEUES.USER_MGMT_AUTH_RESULT.name,
         queueOptions: { durable: true },
         errorBehavior: MessageHandlerErrorBehavior.NACK,
     })
