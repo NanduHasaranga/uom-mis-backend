@@ -1,13 +1,14 @@
+import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
-import { AuthRegistrationPublisher } from '../messaging/publishers/auth-registration.publisher';
-import type { AuthRegistrationRequestedData } from '../messaging/contracts/auth-registration-requested.contract';
-import type { UserRegistrationCompletedData } from '../messaging/contracts/user-registration-completed.contract';
+import { UserRegistrationPublisher } from '../messaging/user-registration.publisher';
+import type { UserRegistrationRequestedCommand } from '@app/rabbitmq';
 import { QueryUsersDto } from './dto/query-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './schemas/user.schema';
 import type { Gender, UserRole } from './schemas/user.schema';
+import { generateSecondaryEmail } from './utils/owned-fields.util';
 
 // Deliberately not reusing the Mongoose StudentDetails/StaffDetails classes here:
 // those model the persisted shape (Dates, some required strings); callers (DTOs,
@@ -69,20 +70,29 @@ export class UsersService {
 
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<User>,
-    private readonly authRegistrationPublisher: AuthRegistrationPublisher,
+    private readonly userRegistrationPublisher: UserRegistrationPublisher,
   ) {}
 
   /**
-   * Creates a `pending` user document and publishes auth.registration.requested.
-   * Callers decide how to handle a publish failure: single-registration callers
-   * let it propagate (surfaces as a failed HTTP response, not a silently
-   * orphaned doc); bulk-upload wraps this per-row instead, to avoid aborting
-   * the whole batch over one row's publish failure.
+   * Creates a `pending` user document and publishes user.registration on
+   * user-mgmt.commands — the trigger that tells Auth Service to create
+   * credentials for this user. userId/secondaryEmail (fields User Management
+   * owns, never Auth Service) are generated up front here and included in
+   * that message, so Auth Service has everything it needs immediately — no
+   * reply is sent back after auth.user-mgmt.success/.failed, see
+   * finalizeAfterAuthentication below. Callers decide how to handle a publish
+   * failure: single-registration callers let it propagate (surfaces as a
+   * failed HTTP response, not a silently orphaned doc); bulk-upload wraps
+   * this per-row instead, to avoid aborting the whole batch over one row's
+   * publish failure.
    */
   async createPendingUser(input: PendingUserInput): Promise<User> {
     const fullName = input.fullName ?? deriveFullName(input.firstName, input.lastName);
+    const userId = randomUUID();
+    const secondaryEmail = input.secondaryEmail ?? generateSecondaryEmail(userId);
 
     const user = await this.userModel.create({
+      userId,
       role: input.role,
       username: input.username ?? undefined,
       authStatus: 'pending',
@@ -94,7 +104,7 @@ export class UsersService {
       dateOfBirth: input.dateOfBirth,
       nic: input.nic,
       primaryEmail: input.primaryEmail ?? undefined,
-      secondaryEmail: input.secondaryEmail,
+      secondaryEmail,
       gender: input.gender,
       currentAddress: input.currentAddress,
       homeTelephoneNo: input.homeTelephoneNo,
@@ -107,25 +117,29 @@ export class UsersService {
       createdBy: input.createdBy,
     });
 
-    const eventData: AuthRegistrationRequestedData = {
-      userId: String(user._id),
-      role: user.role,
-      username: user.username ?? null,
+    // primaryEmail/username are '' when we don't actually have one (e.g. a
+    // bulk-uploaded student with no email column, or a username Auth Service
+    // hasn't assigned yet) — Auth Service's contract types these as required
+    // strings, not nullable, so there's no `null` to send instead. Same for
+    // registration_No: only students have a registration number at all.
+    const command: UserRegistrationRequestedCommand = {
+      correlationId: randomUUID(),
+      userId,
+      primaryEmail: user.primaryEmail ?? '',
+      userName: user.username ?? '',
+      secondaryEmail,
       fullName,
-      nameWithInitials: user.nameWithInitials,
-      primaryEmail: user.primaryEmail ?? null,
-      mobileNo: user.mobileNo ?? null,
-      nic: user.nic,
-      dateOfBirth: user.dateOfBirth.toISOString(),
+      role: user.role,
+      registration_No: input.studentDetails?.registrationNo ?? '',
     };
 
     try {
-      await this.authRegistrationPublisher.publish(eventData);
+      await this.userRegistrationPublisher.publish(command);
     } catch (err) {
       this.logger.error(
         JSON.stringify({
-          msg: 'failed to publish auth.registration.requested — user document left in pending state',
-          correlationId: String(user._id),
+          msg: 'failed to publish user.registration — user document left in pending state',
+          userId,
           error: err instanceof Error ? err.message : String(err),
         }),
       );
@@ -135,28 +149,49 @@ export class UsersService {
     return user;
   }
 
-  async applyRegistrationResult(data: UserRegistrationCompletedData): Promise<User> {
-    const user = await this.userModel.findById(data.userId);
-    if (!user) {
-      throw new NotFoundException(`No user found for userId ${data.userId}`);
+  /**
+   * Called when Auth Service reports auth.user-mgmt.success for a pending
+   * user. userId/secondaryEmail were already generated and sent to Auth
+   * Service up front in createPendingUser, so this just flips authStatus to
+   * active — no reply is published back.
+   *
+   * Idempotency: guarded on authStatus === 'pending' rather than an eventId
+   * log — this event carries no eventId at all. If this user was already
+   * finalized (redelivered duplicate), returns null and the caller (the
+   * consumer) is a no-op. Same read-then-conditionally-mutate-then-save style
+   * as the rest of this service, single-instance dev setup.
+   */
+  async finalizeAfterAuthentication(userId: string): Promise<User | null> {
+    const user = await this.userModel.findOne({ userId });
+    if (!user || user.authStatus !== 'pending') {
+      this.logger.warn(
+        JSON.stringify({
+          msg: 'skipping auth.user-mgmt.success — no pending user for this userId (unknown or already processed)',
+          userId,
+        }),
+      );
+      return null;
     }
 
-    if (data.status === 'success') {
-      user.authStatus = 'active';
-      if (data.keycloakUserId) user.keycloakUserId = data.keycloakUserId;
-      if (!user.username && data.assignedUsername) user.username = data.assignedUsername;
-    } else {
-      user.authStatus = 'failed';
-      user.failureReason = data.failureReason ?? 'Unknown failure';
-    }
-
+    user.authStatus = 'active';
     await user.save();
     return user;
   }
 
-  async findById(id: string): Promise<User> {
-    const user = await this.userModel.findById(id);
-    if (!user) throw new NotFoundException(`User ${id} not found`);
+  async recordAuthenticationFailure(userId: string, errorMessage: string): Promise<void> {
+    const user = await this.userModel.findOne({ userId });
+    if (!user) {
+      this.logger.warn(JSON.stringify({ msg: 'auth.user-mgmt.failed for unknown userId', userId }));
+      return;
+    }
+    user.authStatus = 'failed';
+    user.failureReason = errorMessage;
+    await user.save();
+  }
+
+  async findByUserId(userId: string): Promise<User> {
+    const user = await this.userModel.findOne({ userId });
+    if (!user) throw new NotFoundException(`User ${userId} not found`);
     return user;
   }
 
@@ -190,9 +225,9 @@ export class UsersService {
     return { items, total, page, limit };
   }
 
-  async update(id: string, dto: UpdateUserDto): Promise<User> {
-    const user = await this.userModel.findByIdAndUpdate(id, dto, { new: true });
-    if (!user) throw new NotFoundException(`User ${id} not found`);
+  async update(userId: string, dto: UpdateUserDto): Promise<User> {
+    const user = await this.userModel.findOneAndUpdate({ userId }, dto, { new: true });
+    if (!user) throw new NotFoundException(`User ${userId} not found`);
     return user;
   }
 }

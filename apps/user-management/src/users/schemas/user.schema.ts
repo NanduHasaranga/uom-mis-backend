@@ -42,13 +42,17 @@ export const StaffDetailsSchema = SchemaFactory.createForClass(StaffDetails);
 
 @Schema({ timestamps: true, collection: 'users' })
 export class User extends Document {
+  // The external identifier for this user — everything outside this service
+  // (Auth Service, other consumers, the public API) refers to a user by this,
+  // never by Mongo's own _id.
+  @Prop({ required: true, unique: true }) userId: string;
+
   // optional + sparse: bulk template leaves username blank; Auth Service may assign one
   @Prop({ unique: true, sparse: true, trim: true }) username?: string;
   @Prop({ required: true, enum: ['student', 'staff', 'admin'] }) role: UserRole;
 
   @Prop({ required: true, enum: ['pending', 'active', 'failed'], default: 'pending' })
   authStatus: AuthStatus;
-  @Prop() keycloakUserId: string;
   @Prop() failureReason: string;
 
   // firstName/lastName are collected on single-entry forms but not in the bulk template
@@ -75,7 +79,6 @@ export class User extends Document {
 
   @Prop({ type: Types.ObjectId, ref: 'BulkUploadBatch' }) batchId?: Types.ObjectId;
   @Prop({ type: Types.ObjectId, required: true }) createdBy: Types.ObjectId;
-  @Prop() loginLinkSentAt?: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
