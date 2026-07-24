@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { UserCreatedPublisher } from './messaging/user-created.publisher';
 import { UserCreatedEvent } from '@app/rabbitmq';
 import { randomUUID } from 'crypto';
@@ -12,12 +12,13 @@ interface CreateUserDto {
 
 @Injectable()
 export class UserManagementService {
-  constructor(private readonly userCreatedPublisher: UserCreatedPublisher){}
+  private readonly logger = new Logger(UserManagementService.name);
+  constructor(private readonly userCreatedPublisher: UserCreatedPublisher) { }
 
   getHello(): string {
     return 'Hello World!';
   }
-  
+
   async createUser(dto: CreateUserDto): Promise<{ userId: string }> {
     // TODO: persist user to MongoDB once the User schema exists
     const userId = randomUUID();
@@ -31,6 +32,7 @@ export class UserManagementService {
     };
 
     await this.userCreatedPublisher.publish(event);
+    this.logger.log(`user creation published by the user mgmt service: user id ${userId}`)
     return { userId };
   }
 }

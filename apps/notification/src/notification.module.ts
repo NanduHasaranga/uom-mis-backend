@@ -4,6 +4,7 @@ import { getRabbitMqExchangesConfig } from '@app/rabbitmq';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './notification.service';
 import { CredentialsIssuedConsumer } from './messaging/credentials-issued.consumer';
+import { MailService } from './mail/mail.service';
 
 @Module({
   imports: [
@@ -14,6 +15,6 @@ import { CredentialsIssuedConsumer } from './messaging/credentials-issued.consum
     }),
   ],
   controllers: [NotificationController],
-  providers: [NotificationService, CredentialsIssuedConsumer],
+  providers: [NotificationService, CredentialsIssuedConsumer, MailService],
 })
-export class NotificationModule {}
+export class NotificationModule { }
