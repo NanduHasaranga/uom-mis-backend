@@ -3,10 +3,10 @@ const mongoose = require('mongoose');
 const { Client, Attribute, Change } = require('ldapts');
 const { randomUUID } = require('crypto');
 
-const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
-const REQUEST_EXCHANGE = 'user-management.events.exchange';
-const RESPONSE_EXCHANGE = 'auth.events.exchange';
-const RESPONSE_ROUTING_KEYS = ['user.provisioned', 'user.provision.failed'];
+const RABBITMQ_URL = process.env.RABBITMQ_URL;
+const REQUEST_EXCHANGE = 'user-mgmt.commands';
+const RESPONSE_EXCHANGE = 'auth.events';
+const RESPONSE_ROUTING_KEYS = ['auth.user-mgmt.success', 'auth.user-mgmt.failed'];
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/auth-service';
 const LDAP_URL = process.env.LDAP_URL || 'ldap://localhost:389';
 const LDAP_USERS_OU = process.env.LDAP_USERS_OU || 'ou=users,dc=uom-mis,dc=local';
@@ -44,7 +44,7 @@ async function publishEvent(routingKey, data) {
 
 // Matches responses by correlationId so stale/leftover messages from a
 // previous run never get misattributed to the current test. Binds its own
-// exclusive queue to the auth.events.exchange topic exchange *before*
+// exclusive queue to the auth.events topic exchange *before*
 // invoking triggerFn() (which publishes the request) - topic exchanges don't
 // buffer messages for queues that aren't bound yet, so publishing first would
 // race against auth's response and lose it whenever auth replies quickly
@@ -83,6 +83,52 @@ function waitForResponse(triggerFn, timeoutMs = 15000) {
             finish(parsed);
           }
           // else: stale message from an earlier run, discard and keep waiting
+        });
+      })
+      .catch(reject);
+  });
+}
+
+// Collects every message addressed to userId (matched by field, not
+// correlationId - auth.notification.credentials-issued doesn't carry one) within a fixed
+// window, rather than resolving on the first match. Binds to all three
+// routing keys on one queue so a single publish can be checked against every
+// possible outcome without a double-send.
+function collectAuthEventsForUser(userId, triggerFn, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    amqp
+      .connect(RABBITMQ_URL)
+      .then(async (connection) => {
+        const channel = await connection.createChannel();
+        await channel.assertExchange(RESPONSE_EXCHANGE, 'topic', { durable: true });
+        const { queue } = await channel.assertQueue('', { exclusive: true, autoDelete: true });
+        for (const routingKey of [...RESPONSE_ROUTING_KEYS, 'auth.notification.credentials-issued']) {
+          await channel.bindQueue(queue, RESPONSE_EXCHANGE, routingKey);
+        }
+
+        const collected = [];
+        let settled = false;
+        const finish = async () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          await channel.close();
+          await connection.close();
+          resolve(collected);
+        };
+
+        const timer = setTimeout(finish, timeoutMs);
+
+        await triggerFn();
+
+        channel.consume(queue, (msg) => {
+          if (!msg) return;
+          const parsed = JSON.parse(msg.content.toString());
+          channel.ack(msg);
+          if (parsed?.userId === userId) {
+            collected.push({ routingKey: msg.fields.routingKey, body: parsed });
+          }
+          // else: unrelated message on this shared exchange, discard
         });
       })
       .catch(reject);
@@ -145,21 +191,20 @@ async function main() {
   const email1 = `${userId1}@example.com`;
   {
     const response = await waitForResponse(() =>
-      publishEvent('user.provision.requested', {
-        eventId: randomUUID(),
+      publishEvent('user.registration', {
         userId: userId1,
-        email: email1,
+        primaryEmail: email1,
+        secondaryEmail: email1,
         fullName: 'Alice Fernando',
         role: 'student',
-        address: '10 Main St, Colombo',
-        regNumber: 'REG-TC1',
+        registration_No: 'REG-TC1',
       }),
     );
 
-    if (response?.eventType === 'UserProvisioned' && response.userId === userId1) {
-      pass('TC1a: happy path publishes user.provisioned', JSON.stringify(response));
+    if (response?.status === 'SUCCESS' && response.userId === userId1) {
+      pass('TC1a: happy path publishes auth.user-mgmt.success', JSON.stringify(response));
     } else {
-      fail('TC1a: happy path publishes user.provisioned', JSON.stringify(response));
+      fail('TC1a: happy path publishes auth.user-mgmt.success', JSON.stringify(response));
     }
 
     const entry = await ldapFindUser(userId1);
@@ -169,7 +214,6 @@ async function main() {
       entry.sn === 'Fernando' &&
       entry.givenName === 'Alice' &&
       entry.mail === email1 &&
-      entry.postalAddress === '10 Main St, Colombo' &&
       entry.employeeNumber === 'REG-TC1';
     if (attrsOk) {
       pass('TC1b: LDAP entry created with correct attribute mapping');
@@ -194,13 +238,13 @@ async function main() {
     const beforeDocCount = await AuthAccount.countDocuments({ userId: userId1 });
 
     const response = await waitForResponse(() =>
-      publishEvent('user.provision.requested', {
-        eventId: randomUUID(),
+      publishEvent('user.registration', {
         userId: userId1,
-        email: email1,
+        primaryEmail: email1,
+        secondaryEmail: email1,
         fullName: 'Alice Fernando',
         role: 'student',
-        regNumber: 'REG-TC1',
+        registration_No: 'REG-TC1',
       }),
     );
 
@@ -211,7 +255,7 @@ async function main() {
     const afterDocCount = await AuthAccount.countDocuments({ userId: userId1 });
 
     if (
-      response?.eventType === 'UserProvisioned' &&
+      response?.status === 'SUCCESS' &&
       afterCount === beforeCount &&
       afterDocCount === beforeDocCount
     ) {
@@ -224,14 +268,14 @@ async function main() {
     }
   }
 
-  // TC3 - optional fields omitted (no address/regNumber) - role is staff, so regNumber isn't required
+  // TC3 - optional fields omitted (no registration_No) - role is staff, so registration_No isn't required
   const userId3 = `test-${randomUUID()}`;
   {
     const response = await waitForResponse(() =>
-      publishEvent('user.provision.requested', {
-        eventId: randomUUID(),
+      publishEvent('user.registration', {
         userId: userId3,
-        email: `${userId3}@example.com`,
+        primaryEmail: `${userId3}@example.com`,
+        secondaryEmail: `${userId3}@example.com`,
         fullName: 'Nimal',
         role: 'staff',
       }),
@@ -239,9 +283,8 @@ async function main() {
     const entry = await ldapFindUser(userId3);
 
     if (
-      response?.eventType === 'UserProvisioned' &&
+      response?.status === 'SUCCESS' &&
       entry &&
-      !entry.postalAddress &&
       !entry.employeeNumber &&
       entry.givenName === 'Nimal' &&
       entry.sn === 'Nimal'
@@ -252,14 +295,13 @@ async function main() {
     }
   }
 
-  // TC4 - invalid payload (missing required email) is rejected by validation, service stays healthy
+  // TC4 - invalid payload (missing required emails) is rejected by validation, service stays healthy
   {
     const userId4 = `test-${randomUUID()}`;
     const before = await AuthAccount.countDocuments({});
 
     const response = await waitForResponse(() =>
-      publishEvent('user.provision.requested', {
-        eventId: randomUUID(),
+      publishEvent('user.registration', {
         userId: userId4,
         fullName: 'No Email User',
         role: 'staff',
@@ -277,7 +319,7 @@ async function main() {
     }
 
     if (
-      response?.eventType === 'UserProvisionFailed' &&
+      response?.status === 'FAILED' &&
       /email/i.test(response.reason || '') &&
       after === before &&
       !entry &&
@@ -313,16 +355,16 @@ async function main() {
     }
   }
 
-  // TC6 - student payload missing regNumber is rejected by validation
+  // TC6 - student payload missing registration_No is rejected by validation
   {
     const userId6 = `test-${randomUUID()}`;
     const before = await AuthAccount.countDocuments({});
 
     const response = await waitForResponse(() =>
-      publishEvent('user.provision.requested', {
-        eventId: randomUUID(),
+      publishEvent('user.registration', {
         userId: userId6,
-        email: `${userId6}@example.com`,
+        primaryEmail: `${userId6}@example.com`,
+        secondaryEmail: `${userId6}@example.com`,
         fullName: 'Student Missing Reg',
         role: 'student',
       }),
@@ -331,16 +373,79 @@ async function main() {
     const entry = await ldapFindUser(userId6);
 
     if (
-      response?.eventType === 'UserProvisionFailed' &&
-      /regNumber/i.test(response.reason || '') &&
+      response?.status === 'FAILED' &&
+      /registration_no/i.test(response.reason || '') &&
       after === before &&
       !entry
     ) {
-      pass('TC6: student without regNumber rejected by validation', JSON.stringify(response));
+      pass('TC6: student without registration_No rejected by validation', JSON.stringify(response));
     } else {
       fail(
-        'TC6: student without regNumber rejected by validation',
+        'TC6: student without registration_No rejected by validation',
         `docCount ${before}->${after}, ldapEntry=${!!entry}, response=${JSON.stringify(response)}`,
+      );
+    }
+  }
+
+  // TC7a - successful registration also publishes auth.notification.credentials-issued
+  const userId7a = `test-${randomUUID()}`;
+  const email7a = `${userId7a}@example.com`;
+  {
+    const events = await collectAuthEventsForUser(userId7a, () =>
+      publishEvent('user.registration', {
+        userId: userId7a,
+        primaryEmail: email7a,
+        secondaryEmail: email7a,
+        fullName: 'Credentials Test User',
+        role: 'staff',
+      }),
+    );
+
+    const registered = events.find((e) => e.routingKey === 'auth.user-mgmt.success');
+    const credentials = events.find((e) => e.routingKey === 'auth.notification.credentials-issued');
+
+    if (
+      registered &&
+      credentials &&
+      credentials.body.email === email7a &&
+      credentials.body.fullName === 'Credentials Test User' &&
+      credentials.body.role === 'staff' &&
+      typeof credentials.body.temporaryPassword === 'string' &&
+      credentials.body.temporaryPassword.length > 0 &&
+      typeof credentials.body.createdAt === 'string'
+    ) {
+      pass(
+        'TC7a: successful registration also publishes auth.notification.credentials-issued',
+        JSON.stringify(credentials.body),
+      );
+    } else {
+      fail(
+        'TC7a: successful registration also publishes auth.notification.credentials-issued',
+        JSON.stringify(events),
+      );
+    }
+  }
+
+  // TC7b - a validation failure must NOT publish auth.notification.credentials-issued
+  const userId7b = `test-${randomUUID()}`;
+  {
+    const events = await collectAuthEventsForUser(userId7b, () =>
+      publishEvent('user.registration', {
+        userId: userId7b,
+        fullName: 'No Email User Two',
+        role: 'staff',
+      }),
+    );
+
+    const failed = events.find((e) => e.routingKey === 'auth.user-mgmt.failed');
+    const credentials = events.find((e) => e.routingKey === 'auth.notification.credentials-issued');
+
+    if (failed && !credentials) {
+      pass('TC7b: validation failure does not publish auth.notification.credentials-issued');
+    } else {
+      fail(
+        'TC7b: validation failure does not publish auth.notification.credentials-issued',
+        JSON.stringify(events),
       );
     }
   }

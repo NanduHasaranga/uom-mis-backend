@@ -1,20 +1,19 @@
 const amqp = require('amqplib');
 
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
-const QUEUE = process.env.AUTH_QUEUE || 'auth.user-provision.queue';
+const QUEUE = process.env.AUTH_QUEUE || 'auth.user.register';
 
-const pattern = process.argv[2] || 'user.provision.requested';
+const pattern = process.argv[2] || 'user.registration';
 const overrides = process.argv[3] ? JSON.parse(process.argv[3]) : {};
 
 const data = {
-  eventId: `evt-${Date.now()}`,
   correlationId: `corr-${Date.now()}`,
   userId: `user-${Date.now()}`,
-  email: `test.user.${Date.now()}@example.com`,
+  primaryEmail: `test.user.${Date.now()}@example.com`,
+  secondaryEmail: `test.user.${Date.now()}@example.com`,
   fullName: 'Test User',
   role: 'student',
-  address: '123 Galle Road, Colombo',
-  regNumber: `REG-${Date.now()}`,
+  registration_No: `REG-${Date.now()}`,
   ...overrides,
 };
 
