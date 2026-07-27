@@ -1,46 +1,43 @@
 import { Injectable } from '@nestjs/common';
 import { AmqpConnection } from '@golevelup/nestjs-rabbitmq';
-import { RABBITMQ_EXCHANGES, RABBITMQ_ROUTING_KEYS } from '@app/rabbitmq';
-import { randomUUID } from 'crypto';
+import {
+  AuthRegistrationStatus,
+  AuthRegistrationStatusEvent,
+  AuthCredentialsIssuedEvent,
+  RABBITMQ_EXCHANGES,
+  RABBITMQ_ROUTING_KEYS,
+} from '@app/rabbitmq';
 
 @Injectable()
 export class EventPublisherService {
   constructor(private readonly amqpConnection: AmqpConnection) {}
 
-  async publishUserProvisioned(payload: {
-    correlationId: string;
-    userId: string;
-    email: string;
-    role: string;
-  }) {
+  async publishAuthRegistrationStatus(payload: AuthRegistrationStatusEvent) {
+    const routingKey =
+      payload.status === AuthRegistrationStatus.SUCCESS
+        ? RABBITMQ_ROUTING_KEYS.AUTH_REGISTRATION_SUCCESS
+        : RABBITMQ_ROUTING_KEYS.AUTH_REGISTRATION_FAILED;
+
     await this.amqpConnection.publish(
       RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
-      RABBITMQ_ROUTING_KEYS.USER_PROVISIONED,
-      {
-        eventId: randomUUID(),
-        eventType: 'UserProvisioned',
-        ...payload,
-        publishedAt: new Date().toISOString(),
-      },
+      routingKey,
+      payload,
       { persistent: true },
     );
   }
 
-  async publishUserProvisionFailed(payload: {
-    correlationId: string;
-    userId: string;
-    email: string;
-    reason: string;
-  }) {
+  async publishCredentialsIssued(
+    payload: Omit<AuthCredentialsIssuedEvent, 'createdAt'>,
+  ) {
+    const event: AuthCredentialsIssuedEvent = {
+      ...payload,
+      createdAt: new Date().toISOString(),
+    };
+
     await this.amqpConnection.publish(
       RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
-      RABBITMQ_ROUTING_KEYS.USER_PROVISION_FAILED,
-      {
-        eventId: randomUUID(),
-        eventType: 'UserProvisionFailed',
-        ...payload,
-        publishedAt: new Date().toISOString(),
-      },
+      RABBITMQ_ROUTING_KEYS.AUTH_CREDENTIALS_ISSUED,
+      event,
       { persistent: true },
     );
   }

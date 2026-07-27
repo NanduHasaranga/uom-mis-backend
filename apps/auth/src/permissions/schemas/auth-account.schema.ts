@@ -18,7 +18,7 @@ export class AuthAccount {
   role: string;
 
   @Prop({ default: 'ACTIVE' })
-  status: 'ACTIVE' | 'FAILED' | 'DISABLED';
+  status: 'ACTIVE' | 'DISABLED';
 }
 
 export const AuthAccountSchema = SchemaFactory.createForClass(AuthAccount);

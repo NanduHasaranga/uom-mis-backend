@@ -2,22 +2,28 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { randomBytes } from 'crypto';
 import { Model } from 'mongoose';
+import { AuthRegistrationStatus } from '@app/rabbitmq';
 
 import { LdapService } from '../ldap/ldap.service';
-import { UserProvisionRequestedDto } from './dto/user-provision-requested.dto';
+import { UserRegistrationRequestedDto } from './dto/user-registration-requested.dto';
 import {
   AuthAccount,
   AuthAccountDocument,
 } from '../permissions/schemas/auth-account.schema';
 import { EventPublisherService } from '../events/event-publisher.service';
+import { AuditService } from '../audit/audit.service';
+import { AuthRequestOutcome } from '../audit/schemas/auth-request-log.schema';
+
+const REGISTRATION_ACTION = 'user.registration';
 
 @Injectable()
-export class AuthProvisionService {
-  private readonly logger = new Logger(AuthProvisionService.name);
+export class AuthRegistrationService {
+  private readonly logger = new Logger(AuthRegistrationService.name);
 
   constructor(
     private readonly ldapService: LdapService,
     private readonly eventPublisherService: EventPublisherService,
+    private readonly auditService: AuditService,
 
     @InjectModel(AuthAccount.name)
     private readonly authAccountModel: Model<AuthAccountDocument>,
@@ -32,19 +38,12 @@ export class AuthProvisionService {
     return { givenName, sn: rest.length > 0 ? rest.join(' ') : givenName };
   }
 
-  // TODO: decide the institutional primary-email generation rule (e.g. derived from
-  // regNumber/role) and where it's used (LDAP `mail`, AuthAccount, event payload).
-  // Currently just passes the event's email through unchanged.
-  private generatePrimaryEmail(event: UserProvisionRequestedDto): string {
-    return event.email;
-  }
-
-  async provisionUser(event: UserProvisionRequestedDto) {
+  async registerUser(event: UserRegistrationRequestedDto) {
     this.logger.log({
-      message: 'User provisioning started',
+      message: 'User registration started',
       correlationId: event.correlationId,
       userId: event.userId,
-      email: event.email,
+      email: event.primaryEmail,
     });
 
     const existingAuthAccount = await this.authAccountModel.findOne({
@@ -53,16 +52,23 @@ export class AuthProvisionService {
 
     if (existingAuthAccount) {
       this.logger.log({
-        message: 'User already provisioned. Skipping duplicate event.',
+        message: 'User already registered. Skipping duplicate event.',
         correlationId: event.correlationId,
         userId: event.userId,
       });
 
-      await this.eventPublisherService.publishUserProvisioned({
+      await this.auditService.record({
         correlationId: event.correlationId,
         userId: event.userId,
-        email: event.email,
-        role: existingAuthAccount.role,
+        email: event.primaryEmail,
+        action: REGISTRATION_ACTION,
+        outcome: AuthRequestOutcome.DUPLICATE,
+      });
+
+      await this.eventPublisherService.publishAuthRegistrationStatus({
+        correlationId: event.correlationId,
+        userId: event.userId,
+        status: AuthRegistrationStatus.SUCCESS,
       });
 
       return;
@@ -77,45 +83,67 @@ export class AuthProvisionService {
         cn: event.fullName,
         givenName,
         sn,
-        mail: event.email,
-        address: event.address,
-        employeeId: event.regNumber,
+        mail: event.primaryEmail,
+        employeeId: event.registration_No,
         password: temporaryPassword,
       });
 
       this.logger.log({
-        message: 'Temporary password generated for new user (LDAP-only, dev use)',
+        message: 'Temporary password generated for new user',
         correlationId: event.correlationId,
         userId: event.userId,
-        temporaryPassword,
       });
 
       await this.authAccountModel.create({
         userId: event.userId,
-        email: event.email,
+        email: event.primaryEmail,
         ldapDn,
         role: event.role,
         status: 'ACTIVE',
       });
 
-      await this.eventPublisherService.publishUserProvisioned({
+      await this.eventPublisherService.publishCredentialsIssued({
+        userId: event.userId,
+        email: event.secondaryEmail,
+        fullName: event.fullName,
+        role: event.role,
+        temporaryPassword,
+      });
+
+      await this.eventPublisherService.publishAuthRegistrationStatus({
         correlationId: event.correlationId,
         userId: event.userId,
-        email: event.email,
-        role: event.role,
+        status: AuthRegistrationStatus.SUCCESS,
+      });
+
+      await this.auditService.record({
+        correlationId: event.correlationId,
+        userId: event.userId,
+        email: event.primaryEmail,
+        action: REGISTRATION_ACTION,
+        outcome: AuthRequestOutcome.SUCCESS,
       });
 
       this.logger.log({
-        message: 'User provisioning completed',
+        message: 'User registration completed',
         correlationId: event.correlationId,
         userId: event.userId,
         ldapDn,
       });
     } catch (error) {
-      await this.eventPublisherService.publishUserProvisionFailed({
+      await this.auditService.record({
         correlationId: event.correlationId,
         userId: event.userId,
-        email: event.email,
+        email: event.primaryEmail,
+        action: REGISTRATION_ACTION,
+        outcome: AuthRequestOutcome.FAILED,
+        reason: error.message,
+      });
+
+      await this.eventPublisherService.publishAuthRegistrationStatus({
+        correlationId: event.correlationId,
+        userId: event.userId,
+        status: AuthRegistrationStatus.FAILED,
         reason: error.message,
       });
 

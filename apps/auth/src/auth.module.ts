@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
-import { AuthProvisionModule } from './auth-provision/auth-provision.module';
+import { AuthRegistrationModule } from './auth-registration/auth-registration.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { EventsModule } from './events/events.module';
 import { envValidationSchema } from './config/env.validation';
@@ -25,7 +25,7 @@ import { HealthController } from './health-check.controller';
 
     PermissionsModule,
     EventsModule,
-    AuthProvisionModule,
+    AuthRegistrationModule,
   ],
   controllers: [HealthController],
 })
