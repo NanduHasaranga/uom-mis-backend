@@ -38,15 +38,6 @@
         "tsConfigPath": "apps/notification/tsconfig.app.json"
       }
     },
-    "rabbitmq": {
-      "type": "library",
-      "root": "libs/rabbitmq",
-      "entryFile": "index",
-      "sourceRoot": "libs/rabbitmq/src",
-      "compilerOptions": {
-        "tsConfigPath": "libs/rabbitmq/tsconfig.lib.json"
-      }
-    },
     "user-management": {
       "type": "application",
       "root": "apps/user-management",
@@ -54,6 +45,15 @@
       "sourceRoot": "apps/user-management/src",
       "compilerOptions": {
         "tsConfigPath": "apps/user-management/tsconfig.app.json"
+      }
+    },
+    "rabbitmq": {
+      "type": "library",
+      "root": "libs/rabbitmq",
+      "entryFile": "index",
+      "sourceRoot": "libs/rabbitmq/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/rabbitmq/tsconfig.lib.json"
       }
     }
   }
