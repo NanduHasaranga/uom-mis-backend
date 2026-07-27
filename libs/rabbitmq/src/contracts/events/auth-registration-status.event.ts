@@ -4,8 +4,8 @@ export enum AuthRegistrationStatus {
 }
 
 export interface AuthRegistrationStatusEvent {
+    correlationId: string;
     userId: string;
     status: AuthRegistrationStatus;
     reason?: string;
-    occurredAt: string;
 }

@@ -1,8 +1,8 @@
 export interface AuthCredentialsIssuedEvent {
     userId: string;
-    username: string;
-    password: string;
     email: string;
-    signupLink: string;
-    occurredAt: string;
+    fullName: string;
+    role: string;
+    temporaryPassword: string;
+    createdAt: string;
 }
