@@ -1,0 +1,25 @@
+services:
+  mongo:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes: ["mongo-data:/data/db"]
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports: ["5672:5672", "15672:15672"] # 15672 = management UI
+
+  user-management:
+    build:
+      context: ../..
+      dockerfile: apps/user-management/Dockerfile
+    depends_on: [mongo, rabbitmq]
+    ports: ["3000:3000"]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/user-management
+      RABBITMQ_URI: amqp://rabbitmq:5672
+      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:-http://host.docker.internal:8080/realms/uom/protocol/openid-connect/certs}
+      TOKEN_VERIFIER_MODE: ${TOKEN_VERIFIER_MODE:-stub}
+      PORT: 3000
+
+volumes:
+  mongo-data:
