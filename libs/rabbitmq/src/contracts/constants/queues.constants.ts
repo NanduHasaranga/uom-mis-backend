@@ -3,9 +3,9 @@ export interface QueueDefinition {
     durable: boolean;
 }
 
-// Only queues *we* declare/consume from live here — Auth Service's own
-// queue (auth.user.register) and Notification's future queue
-// (notification.auth.result) are declared on their respective sides.
 export const RABBITMQ_QUEUES = {
+    AUTH_USER_CREATED: { name: 'auth.user-created.queue', durable: true },
     USER_MGMT_AUTH_RESULT_QUEUE: { name: 'user-mgmt.auth.result', durable: true },
+    NOTIFICATION_CREDENTIALS: { name: 'notification.auth.result', durable: true },
+    AUTH_USER_REGISTRATION_REQUESTED: { name: 'auth.user.register', durable: true },
 } as const satisfies Record<string, QueueDefinition>;
