@@ -28,8 +28,8 @@ export class AuthRegistrationController {
   ) {}
 
   @RabbitSubscribe({
-    exchange: RABBITMQ_EXCHANGES.USER_MANAGEMENT_EVENTS.name,
-    routingKey: RABBITMQ_ROUTING_KEYS.USER_REGISTRATION_REQUESTED,
+    exchange: RABBITMQ_EXCHANGES.USER_MGMT_COMMANDS.name,
+    routingKey: RABBITMQ_ROUTING_KEYS.USER_REGISTRATION,
     queue: RABBITMQ_QUEUES.AUTH_USER_REGISTRATION_REQUESTED.name,
     queueOptions: { durable: true },
     errorBehavior: MessageHandlerErrorBehavior.NACK,
@@ -58,7 +58,7 @@ export class AuthRegistrationController {
         correlationId: payload.correlationId,
         userId: payload.userId,
         email: payload.primaryEmail,
-        action: RABBITMQ_ROUTING_KEYS.USER_REGISTRATION_REQUESTED,
+        action: RABBITMQ_ROUTING_KEYS.USER_REGISTRATION,
         outcome: AuthRequestOutcome.REJECTED,
         reason,
       });

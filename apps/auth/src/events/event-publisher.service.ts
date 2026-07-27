@@ -15,8 +15,8 @@ export class EventPublisherService {
   async publishAuthRegistrationStatus(payload: AuthRegistrationStatusEvent) {
     const routingKey =
       payload.status === AuthRegistrationStatus.SUCCESS
-        ? RABBITMQ_ROUTING_KEYS.AUTH_REGISTRATION_SUCCESS
-        : RABBITMQ_ROUTING_KEYS.AUTH_REGISTRATION_FAILED;
+        ? RABBITMQ_ROUTING_KEYS.AUTH_USER_MGMT_SUCCESS
+        : RABBITMQ_ROUTING_KEYS.AUTH_USER_MGMT_FAILED;
 
     await this.amqpConnection.publish(
       RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
