@@ -9,4 +9,6 @@ export interface AuthCredentialsIssuedEvent {
     password?: string;
     signupLink?: string;
     occurredAt: string;
+    role: string;
+    fullName: string;
 }

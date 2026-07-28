@@ -1,0 +1,41 @@
+services:
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: uom-mis-ldap
+    environment:
+      LDAP_ORGANISATION: "UOM MIS"
+      LDAP_DOMAIN: "uom-mis.local"
+      LDAP_BASE_DN: "dc=uom-mis,dc=local"
+      LDAP_ADMIN_PASSWORD: "admin"
+    ports:
+      - "389:389"
+      - "636:636"
+    volumes:
+      - ldap_data:/var/lib/ldap
+      - ldap_config:/etc/ldap/slapd.d
+      - ./docker/ldap/bootstrap:/container/service/slapd/assets/config/bootstrap/ldif/custom
+
+  phpldapadmin:
+    image: osixia/phpldapadmin:0.9.0
+    container_name: uom-mis-ldap-admin
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: openldap
+      PHPLDAPADMIN_HTTPS: "false"
+    ports:
+      - "6080:80"
+    depends_on:
+      - openldap
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: uom-mis-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+volumes:
+  ldap_data:
+  ldap_config:
+  rabbitmq_data:

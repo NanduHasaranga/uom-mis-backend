@@ -1,21 +1,32 @@
 import { Module } from '@nestjs/common';
-import { RabbitMQModule } from '@golevelup/nestjs-rabbitmq';
-import { getRabbitMqExchangesConfig } from '@app/rabbitmq';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { UserCreatedConsumer } from './messaging/user-created.consumer';
-import { AuthStatusPublisher } from './messaging/auth-status.publisher';
-import { CredentialsIssuedPublisher } from './messaging/credentials-issued.publisher';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MongooseModule } from '@nestjs/mongoose';
+import { AuthRegistrationModule } from './auth-registration/auth-registration.module';
+import { PermissionsModule } from './permissions/permissions.module';
+import { EventsModule } from './events/events.module';
+import { envValidationSchema } from './config/env.validation';
+
+import { HealthController } from './health-check.controller';
 
 @Module({
   imports: [
-    RabbitMQModule.forRoot({
-      uri: process.env.RABBITMQ_URL ?? 'amqp://guest:guest@localhost:5672',
-      exchanges: getRabbitMqExchangesConfig(),
-      connectionInitOptions: { wait: false },
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: 'apps/auth/.env',
+      validationSchema: envValidationSchema,
     }),
+
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        uri: configService.getOrThrow<string>('MONGO_URI'),
+      }),
+    }),
+
+    PermissionsModule,
+    EventsModule,
+    AuthRegistrationModule,
   ],
-  controllers: [AuthController],
-  providers: [AuthService, UserCreatedConsumer, AuthStatusPublisher, CredentialsIssuedPublisher],
+  controllers: [HealthController],
 })
-export class AuthModule { }
+export class AuthModule {}
