@@ -8,7 +8,7 @@ const REQUEST_EXCHANGE = 'user-mgmt.commands';
 const RESPONSE_EXCHANGE = 'auth.events';
 const REQUEST_ROUTING_KEY = 'user.register';
 const AUTH_USER_MGMT_RESULT_BINDING_KEY = 'auth.user-mgmt.*';
-const AUTH_NOTIFICATION_RESULT_BINDING_KEY = 'auth.notification.*';
+const AUTH_NOTIFICATION_SUCCEEDED_BINDING_KEY = 'auth.notification.succeeded'; // exact key, not a wildcard — Notification is never told about a failure
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/auth-service';
 const LDAP_URL = process.env.LDAP_URL || 'ldap://localhost:389';
 const LDAP_USERS_OU = process.env.LDAP_USERS_OU || 'ou=users,dc=uom-mis,dc=local';
@@ -90,7 +90,7 @@ function waitForResponse(triggerFn, timeoutMs = 15000) {
 }
 
 // Collects every message addressed to userId (matched by field, not
-// correlationId - auth.notification.succeeded/failed doesn't carry one) within a fixed
+// correlationId - auth.notification.succeeded doesn't carry one) within a fixed
 // window, rather than resolving on the first match. Binds both result
 // binding-key patterns on one queue so a single publish can be checked against
 // every possible outcome without a double-send.
@@ -102,7 +102,7 @@ function collectAuthEventsForUser(userId, triggerFn, timeoutMs = 5000) {
         const channel = await connection.createChannel();
         await channel.assertExchange(RESPONSE_EXCHANGE, 'topic', { durable: true });
         const { queue } = await channel.assertQueue('', { exclusive: true, autoDelete: true });
-        for (const bindingKey of [AUTH_USER_MGMT_RESULT_BINDING_KEY, AUTH_NOTIFICATION_RESULT_BINDING_KEY]) {
+        for (const bindingKey of [AUTH_USER_MGMT_RESULT_BINDING_KEY, AUTH_NOTIFICATION_SUCCEEDED_BINDING_KEY]) {
           await channel.bindQueue(queue, RESPONSE_EXCHANGE, bindingKey);
         }
 

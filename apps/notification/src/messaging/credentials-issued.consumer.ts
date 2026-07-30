@@ -10,7 +10,7 @@ export class CredentialsIssuedConsumer {
 
     @RabbitSubscribe({
         exchange: RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
-        routingKey: RABBITMQ_BINDING_KEYS.AUTH_NOTIFICATION_RESULT,
+        routingKey: RABBITMQ_BINDING_KEYS.AUTH_NOTIFICATION_SUCCEEDED,
         queue: RABBITMQ_QUEUES.NOTIFICATION_AUTH_RESULT.name,
         queueOptions: { durable: true },
         errorBehavior: MessageHandlerErrorBehavior.NACK,

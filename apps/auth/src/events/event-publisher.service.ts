@@ -36,11 +36,8 @@ export class EventPublisherService {
   async publishCredentialsIssued(
     payload: Omit<AuthCredentialsIssuedEvent, 'occurredAt'>,
   ) {
-    const routingKey =
-      payload.status === AuthRegistrationStatus.SUCCESS
-        ? RABBITMQ_ROUTING_KEYS.AUTH_NOTIFICATION_SUCCEEDED
-        : RABBITMQ_ROUTING_KEYS.AUTH_NOTIFICATION_FAILED;
-
+    // Notification only ever hears about successful registrations —
+    // there's no "failed" outcome to branch to here.
     const event: AuthCredentialsIssuedEvent = {
       ...payload,
       occurredAt: new Date().toISOString(),
@@ -48,7 +45,7 @@ export class EventPublisherService {
 
     await this.amqpConnection.publish(
       RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
-      routingKey,
+      RABBITMQ_ROUTING_KEYS.AUTH_NOTIFICATION_SUCCEEDED,
       event,
       { persistent: true },
     );

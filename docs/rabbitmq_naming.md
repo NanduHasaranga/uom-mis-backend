@@ -63,11 +63,15 @@ auth.notification.succeeded
 auth.notification.failed
 ```
 
-**Bindings — Pattern:** `<domain>.<consumer-service>.*`
+**Bindings — Pattern:** `<domain>.<consumer-service>.*` (wildcard, when a
+consumer needs every outcome on one binding)
 ```
 auth.user-mgmt.*
-auth.notification.*
 ```
+
+`auth.notification` is the exception: Notification is only ever told about a
+success, so its binding is the exact key `auth.notification.succeeded`, not
+a wildcard — there's no `.failed` outcome published to it at all.
 
 ---
 
@@ -102,8 +106,10 @@ auth.user-mgmt.succeeded      →  tells User Mgmt to update flag to success
 auth.user-mgmt.failed         →  tells User Mgmt to update flag to failed
 
 auth.notification.succeeded   →  tells Notification to send welcome email
-auth.notification.failed      →  tells Notification to send failure report to admin
 ```
+
+Only success is ever published to Notification — a failed registration never
+reaches it.
 
 ---
 
@@ -113,7 +119,7 @@ auth.notification.failed      →  tells Notification to send failure report to 
 |---|---|---|---|---|
 | 1 | `auth.user.register` | `user-mgmt.commands` | `user.register` | `user.register` |
 | 2 | `user-mgmt.auth.result` | `auth.events` | `auth.user-mgmt.*` | `auth.user-mgmt.succeeded` / `auth.user-mgmt.failed` |
-| 3 | `notification.auth.result` | `auth.events` | `auth.notification.*` | `auth.notification.succeeded` / `auth.notification.failed` |
+| 3 | `notification.auth.result` | `auth.events` | `auth.notification.succeeded` (exact, no wildcard) | `auth.notification.succeeded` only |
 
 
 Auth Service is explicit about **who it is talking to** and **what happened**. Each consumer binds only its own prefix. Clean, traceable, no accidental cross-consumption.

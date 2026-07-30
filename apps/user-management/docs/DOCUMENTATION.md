@@ -61,8 +61,8 @@ flowchart TB
     CmdExchange -- "user.register" --> Auth
     Auth -- "auth.user-mgmt.succeeded/.failed" --> EventExchange
     EventExchange -- "auth.user-mgmt.succeeded/.failed" --> MsgMod
-    Auth -- "auth.notification.succeeded/.failed" --> EventExchange
-    EventExchange -- "auth.notification.succeeded/.failed" --> Notif
+    Auth -- "auth.notification.succeeded" --> EventExchange
+    EventExchange -- "auth.notification.succeeded" --> Notif
 ```
 
 Key architectural decisions baked into this diagram:
@@ -277,7 +277,7 @@ sequenceDiagram
     EvEx->>Consumer: deliver
     Consumer->>Svc: recordAuthenticationFailure(userId, reason)
     Svc->>Mongo: update User {authStatus: failed, failureReason}
-    Note over AuthSvc,EvEx: Auth also publishes auth.notification.failed on<br/>auth.events, straight to Notification — not through us
+    Note over AuthSvc,EvEx: Notification is never told about this at all —<br/>auth.notification.succeeded is the only outcome ever published to it
 ```
 
 ### 5.3 Redelivery — how duplicates are handled

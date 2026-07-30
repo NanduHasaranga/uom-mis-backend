@@ -14,9 +14,10 @@ Admin/User SPA → API Gateway (Kong, HTTP) → User Management (this service, H
                                                           ├─→ Auth Service (user-mgmt.commands, key user.register)
                                                           └─← Auth Service (auth.events, keys auth.user-mgmt.succeeded/.failed)
 
-Auth Service separately publishes auth.notification.succeeded/.failed on
-auth.events straight to Notification Service — this service is not on that
-path at all, it only ever talks to Auth.
+Auth Service separately publishes auth.notification.succeeded (success only —
+Notification is never told about a failure) on auth.events straight to
+Notification Service — this service is not on that path at all, it only ever
+talks to Auth.
 ```
 
 This service never calls Auth directly over HTTP — only through the RabbitMQ
@@ -200,8 +201,9 @@ are the plain command/event object, no envelope wrapper.
   publisher is needed by `UsersService`).
 
 Notification Service is never on this service's messaging path — once Auth
-issues credentials it publishes `auth.notification.succeeded`/`.failed`
-straight to Notification on the same `auth.events` exchange.
+issues credentials it publishes `auth.notification.succeeded` (the only
+outcome ever sent to Notification — no failure variant) straight to
+Notification on the same `auth.events` exchange.
 
 ### `health/health.controller.ts`
 `GET /health` → `{ status: 'ok', timestamp }`. No module of its own —
@@ -336,7 +338,7 @@ shared with Auth/Notification via the `@app/rabbitmq` lib. See
 |---|---|---|
 | `user.register` | `auth.user.register` | published by us → Auth |
 | `auth.user-mgmt.succeeded` / `.failed`, bound via `auth.user-mgmt.*` | `user-mgmt.auth.result` | published by Auth → us |
-| `auth.notification.succeeded` / `.failed`, bound via `auth.notification.*` | `notification.auth.result` | published by Auth → Notification (not this service) |
+| `auth.notification.succeeded` (exact key, not wildcard — no `.failed` is ever published) | `notification.auth.result` | published by Auth → Notification (not this service) |
 
 ## How to call it locally
 
