@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model, Types } from 'mongoose';
+import { QueryFilter, Model, Types } from 'mongoose';
 import { UserRegistrationPublisher } from '../messaging/user-registration.publisher';
 import type { UserRegistrationRequestedCommand } from '@app/rabbitmq';
 import { QueryUsersDto } from './dto/query-users.dto';
@@ -196,7 +196,7 @@ export class UsersService {
   }
 
   async list(query: QueryUsersDto): Promise<{ items: User[]; total: number; page: number; limit: number }> {
-    const filter: FilterQuery<User> = {};
+    const filter: QueryFilter<User> = {};
     if (query.role) filter.role = query.role;
     if (query.authStatus) filter.authStatus = query.authStatus;
     if (query.batchId) filter.batchId = new Types.ObjectId(query.batchId);
