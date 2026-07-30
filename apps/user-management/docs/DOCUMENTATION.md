@@ -558,7 +558,7 @@ Query params: `role`, `authStatus`, `batchId`, `search`, `page` (default 1),
 `limit` (default 20).
 
 ### `GET /users/:id` — no auth required
-### `PATCH /users/:id` — admin
+### `PUT /users/:id` — admin
 
 Body (`UpdateUserDto`, all optional): `firstName`, `lastName`,
 `nameWithInitials`, `fullName`, `title`, `primaryEmail`, `secondaryEmail`,

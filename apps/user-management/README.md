@@ -103,7 +103,7 @@ below) and the dev-only mock consumer's `NODE_ENV` guard.
 - **`dto/`** — `class-validator` DTOs: `CreateStudentDto`, `CreateStaffDto`
   (one endpoint handles both `staff` and `admin`, picked by `dto.role`),
   `UpdateUserDto` (deliberately excludes `username`/`role`/`authStatus` — not
-  editable via `PATCH`), `QueryUsersDto` (list/search/filter + pagination).
+  editable via `PUT`), `QueryUsersDto` (list/search/filter + pagination).
 - **`users.service.ts`** — the core logic:
   - `createPendingUser(input)` — writes the `pending` doc, then publishes
     `auth.registration.requested`. If the publish fails, it's logged loudly
@@ -116,7 +116,7 @@ below) and the dev-only mock consumer's `NODE_ENV` guard.
   - `list` / `findById` / `update` — the read/patch endpoints.
 - **`users.controller.ts`** — `POST /users/students`, `POST /users/staff`
   (both `admin`-guarded, return `202` + `userId`), `GET /users`,
-  `GET /users/:id`, `PATCH /users/:id` (`admin`-guarded). Converts the JWT
+  `GET /users/:id`, `PUT /users/:id` (`admin`-guarded). Converts the JWT
   `sub` to `createdBy` via `adminIdFromSub`.
 - **`users.module.ts`** — imports `CommonModule` (guard/verifier) and
   `MessagingModule` via `forwardRef` (genuine circular dependency: the
@@ -339,7 +339,7 @@ All under `/api/v1` except `/health`. Write endpoints require
 | POST | `/users/bulk-upload` | admin | Multipart Excel/CSV + `batchMetadata` JSON field |
 | GET | `/users` | — | List/search/filter (`role`, `authStatus`, `batchId`, `search`, `page`, `limit`) |
 | GET | `/users/:id` | — | Get one user |
-| PATCH | `/users/:id` | admin | Update editable profile fields |
+| PUT | `/users/:id` | admin | Update editable profile fields |
 | GET | `/bulk-uploads/:batchId` | — | Batch progress + live authStatus counts |
 | GET | `/health` | — | Liveness/readiness |
 

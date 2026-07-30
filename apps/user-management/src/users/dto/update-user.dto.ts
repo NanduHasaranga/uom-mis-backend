@@ -1,7 +1,7 @@
 import { IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
 import type { Gender } from '../schemas/user.schema';
 
-// Explicitly excludes username/role/authStatus — those are not editable via PATCH.
+// Explicitly excludes username/role/authStatus — those are not editable via PUT.
 export class UpdateUserDto {
   @IsOptional() @IsString() firstName?: string;
   @IsOptional() @IsString() lastName?: string;

@@ -5,8 +5,8 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -98,7 +98,7 @@ export class UsersController {
     return this.usersService.findByUserId(id);
   }
 
-  @Patch(':id')
+  @Put(':id')
   @UseGuards(RolesGuard)
   @Roles('admin')
   async update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
