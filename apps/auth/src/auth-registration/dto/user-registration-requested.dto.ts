@@ -17,6 +17,10 @@ export class UserRegistrationRequestedDto {
   @IsEmail()
   primaryEmail: string;
 
+  @IsString()
+  @IsNotEmpty()
+  userName: string;
+
   @IsEmail()
   secondaryEmail: string;
 

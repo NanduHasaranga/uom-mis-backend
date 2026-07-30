@@ -20,7 +20,7 @@ describe('UsersService', () => {
   });
 
   describe('createPendingUser', () => {
-    it('creates a pending user doc and publishes user.registration', async () => {
+    it('creates a pending user doc and publishes user.register', async () => {
       const createdBy = new Types.ObjectId();
       const doc = {
         _id: new Types.ObjectId(),

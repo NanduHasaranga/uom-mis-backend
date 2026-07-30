@@ -3,23 +3,26 @@
 Part of the UoM MIS microservices system. Owns student/staff/admin registration
 (single-entry and bulk Excel/CSV upload), the `users` and `bulkUploadBatches`
 MongoDB collections, and the async handshake with the Auth Service (Keycloak)
-and Notification Service over RabbitMQ.
+over RabbitMQ.
 
 ```
 Admin/User SPA → API Gateway (Kong, HTTP) → User Management (this service, HTTP)
                                                    │
                                                    ├── MongoDB (own database)
                                                    │
-                                                   └── RabbitMQ (mis.user.events, topic exchange)
-                                                          ├─→ Auth Service      (auth.registration.requested)
-                                                          ├─← Auth Service      (user.registration.completed)
-                                                          └─→ Notification Svc  (notification.user.activated)
+                                                   └── RabbitMQ
+                                                          ├─→ Auth Service (user-mgmt.commands, key user.register)
+                                                          └─← Auth Service (auth.events, keys auth.user-mgmt.succeeded/.failed)
+
+Auth Service separately publishes auth.notification.succeeded/.failed on
+auth.events straight to Notification Service — this service is not on that
+path at all, it only ever talks to Auth.
 ```
 
-This service never calls Auth or Notification directly over HTTP — only
-through the RabbitMQ contract in [§ RabbitMQ contract](#rabbitmq-contract).
-Auth Service owns credentials (Keycloak/LDAP); this service never stores a
-password.
+This service never calls Auth directly over HTTP — only through the RabbitMQ
+contract in [§ RabbitMQ contract](#rabbitmq-contract). It has no channel to
+Notification Service, direct or otherwise. Auth Service owns credentials
+(Keycloak/LDAP); this service never stores a password.
 
 ## Tech stack
 
@@ -37,8 +40,8 @@ nest start user-management        # or: nest start user-management --watch
 ```
 
 Config is loaded from `apps/user-management/.env` (see `.env.example` for the
-full list — `MONGODB_URI`, `RABBITMQ_URI`, `RABBITMQ_EXCHANGE`,
-`KEYCLOAK_JWKS_URI`, `PORT`, plus two dev-only flags explained below).
+full list — `MONGODB_URI`, `RABBITMQ_URI`, `KEYCLOAK_JWKS_URI`, `PORT`, plus
+`TOKEN_VERIFIER_MODE`, a dev-only flag explained below).
 `main.ts` loads this file explicitly (`join(process.cwd(), 'apps/user-management/.env')`)
 before anything else in the import graph, because the RabbitMQ decorators
 read `process.env` at class-decoration time — see the comment at the top of
@@ -51,9 +54,9 @@ handful of student/staff/admin documents across all three `authStatus` values.
 
 ### `config/configuration.ts`
 Single `@nestjs/config` factory. Every env var the service reads goes through
-here with a sane default — nothing else in the codebase touches `process.env`
-directly except `messaging/contracts/exchange.constants.ts` (deliberately, see
-below) and the dev-only mock consumer's `NODE_ENV` guard.
+here with a sane default — the one exception is `main.ts`'s final
+`process.env.PORT ?? 3000` fallback (and the `dotenv` bootstrap at the very
+top of `main.ts` itself, see below).
 
 ### `common/` — cross-cutting building blocks
 - **`guards/token-verifier.interface.ts`** — the `TokenVerifier` interface
@@ -106,14 +109,16 @@ below) and the dev-only mock consumer's `NODE_ENV` guard.
   editable via `PATCH`), `QueryUsersDto` (list/search/filter + pagination).
 - **`users.service.ts`** — the core logic:
   - `createPendingUser(input)` — writes the `pending` doc, then publishes
-    `auth.registration.requested`. If the publish fails, it's logged loudly
-    and **rethrown** rather than swallowed — the caller sees a failed HTTP
+    `user.register`. If the publish fails, it's logged loudly and
+    **rethrown** rather than swallowed — the caller sees a failed HTTP
     response instead of a silently orphaned pending document. (Bulk upload
     catches this per-row instead — see below.)
-  - `applyRegistrationResult(data)` — called by the RabbitMQ consumer when
-    Auth replies. Sets `authStatus: active` (+ `keycloakUserId`, `username` if
-    Auth assigned one) or `authStatus: failed` (+ `failureReason`).
-  - `list` / `findById` / `update` — the read/patch endpoints.
+  - `finalizeAfterAuthentication(userId)` — called by the RabbitMQ consumer
+    when Auth reports success. Sets `authStatus: active` (only while still
+    `pending`, so a redelivered result is a no-op).
+  - `recordAuthenticationFailure(userId, reason)` — called when Auth reports
+    failure. Sets `authStatus: failed` + `failureReason`.
+  - `list` / `findByUserId` / `update` — the read/patch endpoints.
 - **`users.controller.ts`** — `POST /users/students`, `POST /users/staff`
   (both `admin`-guarded, return `202` + `userId`), `GET /users`,
   `GET /users/:id`, `PATCH /users/:id` (`admin`-guarded). Converts the JWT
@@ -164,55 +169,39 @@ below) and the dev-only mock consumer's `NODE_ENV` guard.
   confirming with whoever owns the spec.
 
 ### `messaging/` — RabbitMQ pub/sub
-Single topic exchange `mis.user.events` (env: `RABBITMQ_EXCHANGE`), durable.
-Every message is wrapped in an envelope (`eventId`, `eventType`, `version`,
-`timestamp`, `correlationId`, `data`) built by **`envelope.util.ts`**'s
-`buildEnvelope()` — every publisher calls this one function so the envelope
-shape never drifts between call sites.
+Two exchanges, both hardcoded constants shared with Auth/Notification via the
+`@app/rabbitmq` lib (`libs/rabbitmq/src/contracts/constants/`), not env-driven:
+`user-mgmt.commands` (direct) carries the registration command to Auth;
+`auth.events` (topic) carries result events back out to User Management and
+Notification, one per consumer via a routing-key/binding-key prefix each
+consumer owns exclusively. `docs/rabbitmq_naming.md` at the repo root is the
+authoritative naming convention both this service and Auth follow. Messages
+are the plain command/event object, no envelope wrapper.
 
-- **`contracts/`** — plain TypeScript interfaces mirroring the three event
-  payloads (`auth-registration-requested`, `user-registration-completed`,
-  `notification-user-activated`) plus `exchange.constants.ts` (exchange name,
-  routing keys, queue names). **This file reads `process.env` directly**,
-  not via `ConfigService` — `@RabbitSubscribe({...})` decorator options are
-  evaluated when the consumer file is `require`d, which happens before
-  `ConfigModule`'s own factory runs. `main.ts` loading `.env` as its very
-  first statement is what makes this safe.
-- **`publishers/auth-registration.publisher.ts`** — publishes
-  `auth.registration.requested` (fired once per user, right after the
-  `pending` doc is created — both for single registration and each bulk
-  row). No password is ever included; `username`/`primaryEmail` are
-  published as `null` when not known (bulk-uploaded students have no email
+- **`user-registration.publisher.ts`** — `UserRegistrationPublisher`,
+  publishes a `UserRegistrationRequestedCommand` with routing key
+  `user.register` on `user-mgmt.commands` (fired once per user, right after
+  the `pending` doc is created — both for single registration and each bulk
+  row). No password is ever included; `primaryEmail`/`userName` are
+  published as `''` when not known (bulk-uploaded students have no email
   column at all — this is a deliberate, spec-documented decision, not a bug).
-- **`publishers/notification.publisher.ts`** — publishes
-  `notification.user.activated`, only after Auth confirms success.
-- **`consumers/auth-registration-result.consumer.ts`** — subscribes to
-  `user.registration.completed` (queue `user-management.registration-results`).
-  First checks idempotency (below); if new, calls
-  `UsersService.applyRegistrationResult`, and on success publishes
-  `notification.user.activated`.
-- **`idempotency/`** — RabbitMQ gives at-least-once delivery, so consumers
-  must tolerate redelivery. `processed-event.schema.ts` is a tiny
-  `processedEvents` collection with a **unique index on `eventId`**;
-  `processed-events.service.ts`'s `markProcessed()` does an
-  insert-and-catch-duplicate-key (Mongo error code `11000`) — an atomic
-  insert-if-not-seen gate, no separate check-then-act race. Deliberately
-  simple (no TTL/cleanup) since this is a single-instance dev setup.
-- **`mock/mock-auth.consumer.ts`** — simulates an Auth Service reply so the
-  full flow (`pending → auth.registration.requested → [Auth] →
-  user.registration.completed → active → notification.user.activated`) can
-  be exercised end-to-end without a real Auth Service running. Subscribes to
-  `auth.registration.requested` and auto-publishes a synthetic success
-  `user.registration.completed`. **Gated two ways**: (1) only added to
-  `messaging.module.ts`'s `providers` array when
-  `AUTH_SERVICE_MOCK_ENABLED=true` (never set in a deployed env), (2) its
-  constructor throws if `NODE_ENV === 'production'` as a backstop.
-- **`messaging.module.ts`** — `RabbitMQModule.forRootAsync` (exchange +
-  connection config from `ConfigService`), registers the publishers,
-  idempotency service, real consumer, and conditionally the mock consumer.
+- **`auth-result.consumer.ts`** — `AuthResultConsumer`, binds queue
+  `user-mgmt.auth.result` on `auth.events` via the `auth.user-mgmt.*` binding
+  key (one queue, both outcomes). On success calls
+  `UsersService.finalizeAfterAuthentication`; on failure calls
+  `UsersService.recordAuthenticationFailure`. Redelivery is handled without a
+  separate idempotency ledger: `finalizeAfterAuthentication` only acts while
+  `authStatus === 'pending'`, so a duplicate delivery for an already-finalized
+  user is a silent no-op.
+- **`messaging.module.ts`** — `RabbitMQModule.forRootAsync` (connection
+  config from `ConfigService`), registers the publisher and consumer above.
   Imports `UsersModule` via `forwardRef` (mirrors `UsersModule`'s own
   `forwardRef` back to this module — the consumer needs `UsersService`, the
   publisher is needed by `UsersService`).
+
+Notification Service is never on this service's messaging path — once Auth
+issues credentials it publishes `auth.notification.succeeded`/`.failed`
+straight to Notification on the same `auth.events` exchange.
 
 ### `health/health.controller.ts`
 `GET /health` → `{ status: 'ok', timestamp }`. No module of its own —
@@ -237,10 +226,10 @@ Root module: `ConfigModule` (global), `MongooseModule.forRootAsync`,
 erDiagram
     USER {
         ObjectId _id PK
+        string userId UK "external id, required — everything outside this service refers to a user by this, never _id"
         string username UK "sparse, optional"
         string role "student | staff | admin"
         string authStatus "pending | active | failed"
-        string keycloakUserId
         string failureReason
         string firstName
         string lastName
@@ -259,7 +248,6 @@ erDiagram
         string telephone
         ObjectId batchId FK "ref BulkUploadBatch, optional"
         ObjectId createdBy "admin id, required"
-        Date loginLinkSentAt
         Date createdAt
         Date updatedAt
     }
@@ -305,27 +293,17 @@ erDiagram
         Date updatedAt
     }
 
-    PROCESSED_EVENT {
-        ObjectId _id PK
-        string eventId UK "required, RabbitMQ idempotency key"
-        string eventType "required"
-        string correlationId "loose ref to User._id"
-        Date createdAt
-        Date updatedAt
-    }
-
     USER ||--o| STUDENT_DETAILS : "embeds when role=student"
     USER ||--o| STAFF_DETAILS : "embeds when role=staff/admin"
     BULK_UPLOAD_BATCH ||--o{ USER : "batchId (bulk-uploaded rows only)"
-    USER ||--o{ PROCESSED_EVENT : "correlationId (not FK-enforced)"
 ```
 
 `STUDENT_DETAILS`/`STAFF_DETAILS` aren't separate collections — they're
 embedded sub-documents (`@Schema({ _id: false })`) nested directly inside a
 `USER` doc, only one of the two populated depending on `role`. `batchId` only
-exists on users created via bulk upload. `PROCESSED_EVENT` has no real
-foreign key to `USER` — `correlationId` is just a string carried through from
-the RabbitMQ envelope, shown here as a loose relationship for context.
+exists on users created via bulk upload. There's no separate
+idempotency-tracking collection — redelivery safety is handled in
+`UsersService` itself (see `messaging/` below).
 
 ## API endpoints
 
@@ -345,14 +323,20 @@ All under `/api/v1` except `/health`. Write endpoints require
 
 ## RabbitMQ contract
 
-Exchange `mis.user.events` (topic, durable). See `messaging/contracts/` for
-the exact payload shapes.
+Two exchanges, both defined in `libs/rabbitmq/src/contracts/constants/` and
+shared with Auth/Notification via the `@app/rabbitmq` lib. See
+`docs/rabbitmq_naming.md` at the repo root for the full naming convention.
 
-| Routing key | Direction | Queue (proposed) |
+| Exchange | Type | Direction |
 |---|---|---|
-| `auth.registration.requested` | published by us, consumed by Auth | `auth-service.registration-requests` |
-| `user.registration.completed` | published by Auth, consumed by us | `user-management.registration-results` |
-| `notification.user.activated` | published by us, consumed by Notification | `notification-service.user-events` |
+| `user-mgmt.commands` | direct | published by us, consumed by Auth |
+| `auth.events` | topic | published by Auth, consumed by us and by Notification |
+
+| Routing key (publish) / binding key (consume) | Queue | Direction |
+|---|---|---|
+| `user.register` | `auth.user.register` | published by us → Auth |
+| `auth.user-mgmt.succeeded` / `.failed`, bound via `auth.user-mgmt.*` | `user-mgmt.auth.result` | published by Auth → us |
+| `auth.notification.succeeded` / `.failed`, bound via `auth.notification.*` | `notification.auth.result` | published by Auth → Notification (not this service) |
 
 ## How to call it locally
 
@@ -376,7 +360,7 @@ npx jest apps/user-management
 ```
 
 `test/users.service.spec.ts`, `test/bulk-upload.service.spec.ts`,
-`test/messaging.consumer.spec.ts` — all pure unit tests, Mongoose
+`test/auth-result.consumer.spec.ts` — all pure unit tests, Mongoose
 models/`AmqpConnection` mocked, no real Mongo/RabbitMQ required.
 
 ## Docker

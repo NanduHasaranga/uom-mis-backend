@@ -6,7 +6,9 @@ const { randomUUID } = require('crypto');
 const RABBITMQ_URL = process.env.RABBITMQ_URL;
 const REQUEST_EXCHANGE = 'user-mgmt.commands';
 const RESPONSE_EXCHANGE = 'auth.events';
-const RESPONSE_ROUTING_KEYS = ['auth.user-mgmt.success', 'auth.user-mgmt.failed'];
+const REQUEST_ROUTING_KEY = 'user.register';
+const AUTH_USER_MGMT_RESULT_BINDING_KEY = 'auth.user-mgmt.*';
+const AUTH_NOTIFICATION_RESULT_BINDING_KEY = 'auth.notification.*';
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/auth-service';
 const LDAP_URL = process.env.LDAP_URL || 'ldap://localhost:389';
 const LDAP_USERS_OU = process.env.LDAP_USERS_OU || 'ou=users,dc=uom-mis,dc=local';
@@ -57,9 +59,7 @@ function waitForResponse(triggerFn, timeoutMs = 15000) {
         const channel = await connection.createChannel();
         await channel.assertExchange(RESPONSE_EXCHANGE, 'topic', { durable: true });
         const { queue } = await channel.assertQueue('', { exclusive: true, autoDelete: true });
-        for (const routingKey of RESPONSE_ROUTING_KEYS) {
-          await channel.bindQueue(queue, RESPONSE_EXCHANGE, routingKey);
-        }
+        await channel.bindQueue(queue, RESPONSE_EXCHANGE, AUTH_USER_MGMT_RESULT_BINDING_KEY);
 
         let settled = false;
         const finish = async (result) => {
@@ -90,10 +90,10 @@ function waitForResponse(triggerFn, timeoutMs = 15000) {
 }
 
 // Collects every message addressed to userId (matched by field, not
-// correlationId - auth.notification.credentials-issued doesn't carry one) within a fixed
-// window, rather than resolving on the first match. Binds to all three
-// routing keys on one queue so a single publish can be checked against every
-// possible outcome without a double-send.
+// correlationId - auth.notification.succeeded/failed doesn't carry one) within a fixed
+// window, rather than resolving on the first match. Binds both result
+// binding-key patterns on one queue so a single publish can be checked against
+// every possible outcome without a double-send.
 function collectAuthEventsForUser(userId, triggerFn, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     amqp
@@ -102,8 +102,8 @@ function collectAuthEventsForUser(userId, triggerFn, timeoutMs = 5000) {
         const channel = await connection.createChannel();
         await channel.assertExchange(RESPONSE_EXCHANGE, 'topic', { durable: true });
         const { queue } = await channel.assertQueue('', { exclusive: true, autoDelete: true });
-        for (const routingKey of [...RESPONSE_ROUTING_KEYS, 'auth.notification.credentials-issued']) {
-          await channel.bindQueue(queue, RESPONSE_EXCHANGE, routingKey);
+        for (const bindingKey of [AUTH_USER_MGMT_RESULT_BINDING_KEY, AUTH_NOTIFICATION_RESULT_BINDING_KEY]) {
+          await channel.bindQueue(queue, RESPONSE_EXCHANGE, bindingKey);
         }
 
         const collected = [];
@@ -191,8 +191,9 @@ async function main() {
   const email1 = `${userId1}@example.com`;
   {
     const response = await waitForResponse(() =>
-      publishEvent('user.registration', {
+      publishEvent(REQUEST_ROUTING_KEY, {
         userId: userId1,
+        userName: userId1,
         primaryEmail: email1,
         secondaryEmail: email1,
         fullName: 'Alice Fernando',
@@ -202,9 +203,9 @@ async function main() {
     );
 
     if (response?.status === 'SUCCESS' && response.userId === userId1) {
-      pass('TC1a: happy path publishes auth.user-mgmt.success', JSON.stringify(response));
+      pass('TC1a: happy path publishes auth.user-mgmt.succeeded', JSON.stringify(response));
     } else {
-      fail('TC1a: happy path publishes auth.user-mgmt.success', JSON.stringify(response));
+      fail('TC1a: happy path publishes auth.user-mgmt.succeeded', JSON.stringify(response));
     }
 
     const entry = await ldapFindUser(userId1);
@@ -238,8 +239,9 @@ async function main() {
     const beforeDocCount = await AuthAccount.countDocuments({ userId: userId1 });
 
     const response = await waitForResponse(() =>
-      publishEvent('user.registration', {
+      publishEvent(REQUEST_ROUTING_KEY, {
         userId: userId1,
+        userName: userId1,
         primaryEmail: email1,
         secondaryEmail: email1,
         fullName: 'Alice Fernando',
@@ -272,8 +274,9 @@ async function main() {
   const userId3 = `test-${randomUUID()}`;
   {
     const response = await waitForResponse(() =>
-      publishEvent('user.registration', {
+      publishEvent(REQUEST_ROUTING_KEY, {
         userId: userId3,
+        userName: userId3,
         primaryEmail: `${userId3}@example.com`,
         secondaryEmail: `${userId3}@example.com`,
         fullName: 'Nimal',
@@ -301,8 +304,9 @@ async function main() {
     const before = await AuthAccount.countDocuments({});
 
     const response = await waitForResponse(() =>
-      publishEvent('user.registration', {
+      publishEvent(REQUEST_ROUTING_KEY, {
         userId: userId4,
+        userName: userId4,
         fullName: 'No Email User',
         role: 'staff',
       }),
@@ -361,8 +365,9 @@ async function main() {
     const before = await AuthAccount.countDocuments({});
 
     const response = await waitForResponse(() =>
-      publishEvent('user.registration', {
+      publishEvent(REQUEST_ROUTING_KEY, {
         userId: userId6,
+        userName: userId6,
         primaryEmail: `${userId6}@example.com`,
         secondaryEmail: `${userId6}@example.com`,
         fullName: 'Student Missing Reg',
@@ -387,13 +392,14 @@ async function main() {
     }
   }
 
-  // TC7a - successful registration also publishes auth.notification.credentials-issued
+  // TC7a - successful registration also publishes auth.notification.succeeded
   const userId7a = `test-${randomUUID()}`;
   const email7a = `${userId7a}@example.com`;
   {
     const events = await collectAuthEventsForUser(userId7a, () =>
-      publishEvent('user.registration', {
+      publishEvent(REQUEST_ROUTING_KEY, {
         userId: userId7a,
+        userName: userId7a,
         primaryEmail: email7a,
         secondaryEmail: email7a,
         fullName: 'Credentials Test User',
@@ -401,8 +407,8 @@ async function main() {
       }),
     );
 
-    const registered = events.find((e) => e.routingKey === 'auth.user-mgmt.success');
-    const credentials = events.find((e) => e.routingKey === 'auth.notification.credentials-issued');
+    const registered = events.find((e) => e.routingKey === 'auth.user-mgmt.succeeded');
+    const credentials = events.find((e) => e.routingKey === 'auth.notification.succeeded');
 
     if (
       registered &&
@@ -410,41 +416,42 @@ async function main() {
       credentials.body.email === email7a &&
       credentials.body.fullName === 'Credentials Test User' &&
       credentials.body.role === 'staff' &&
-      typeof credentials.body.temporaryPassword === 'string' &&
-      credentials.body.temporaryPassword.length > 0 &&
-      typeof credentials.body.createdAt === 'string'
+      typeof credentials.body.password === 'string' &&
+      credentials.body.password.length > 0 &&
+      typeof credentials.body.occurredAt === 'string'
     ) {
       pass(
-        'TC7a: successful registration also publishes auth.notification.credentials-issued',
+        'TC7a: successful registration also publishes auth.notification.succeeded',
         JSON.stringify(credentials.body),
       );
     } else {
       fail(
-        'TC7a: successful registration also publishes auth.notification.credentials-issued',
+        'TC7a: successful registration also publishes auth.notification.succeeded',
         JSON.stringify(events),
       );
     }
   }
 
-  // TC7b - a validation failure must NOT publish auth.notification.credentials-issued
+  // TC7b - a validation failure must NOT publish any auth.notification.* event
   const userId7b = `test-${randomUUID()}`;
   {
     const events = await collectAuthEventsForUser(userId7b, () =>
-      publishEvent('user.registration', {
+      publishEvent(REQUEST_ROUTING_KEY, {
         userId: userId7b,
+        userName: userId7b,
         fullName: 'No Email User Two',
         role: 'staff',
       }),
     );
 
     const failed = events.find((e) => e.routingKey === 'auth.user-mgmt.failed');
-    const credentials = events.find((e) => e.routingKey === 'auth.notification.credentials-issued');
+    const credentials = events.find((e) => e.routingKey.startsWith('auth.notification.'));
 
     if (failed && !credentials) {
-      pass('TC7b: validation failure does not publish auth.notification.credentials-issued');
+      pass('TC7b: validation failure does not publish any auth.notification.* event');
     } else {
       fail(
-        'TC7b: validation failure does not publish auth.notification.credentials-issued',
+        'TC7b: validation failure does not publish any auth.notification.* event',
         JSON.stringify(events),
       );
     }

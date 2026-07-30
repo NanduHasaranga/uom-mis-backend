@@ -3,7 +3,7 @@ import { RabbitSubscribe, MessageHandlerErrorBehavior } from '@golevelup/nestjs-
 import {
   RABBITMQ_EXCHANGES,
   RABBITMQ_QUEUES,
-  RABBITMQ_ROUTING_KEYS,
+  RABBITMQ_BINDING_KEYS,
   AuthRegistrationStatus,
   type AuthRegistrationStatusEvent,
 } from '@app/rabbitmq';
@@ -17,8 +17,8 @@ export class AuthResultConsumer {
 
   @RabbitSubscribe({
     exchange: RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
-    routingKey: [RABBITMQ_ROUTING_KEYS.AUTH_USER_MGMT_SUCCESS, RABBITMQ_ROUTING_KEYS.AUTH_USER_MGMT_FAILED],
-    queue: RABBITMQ_QUEUES.USER_MGMT_AUTH_RESULT_QUEUE.name,
+    routingKey: RABBITMQ_BINDING_KEYS.AUTH_USER_MGMT_RESULT,
+    queue: RABBITMQ_QUEUES.USER_MGMT_AUTH_RESULT.name,
     queueOptions: { durable: true },
     errorBehavior: MessageHandlerErrorBehavior.NACK,
   })

@@ -1,7 +1,9 @@
-// Test-only scaffolding for the downstream queues that user-management and
-// notification will eventually own (libs/rabbitmq/src/contracts/constants/queues.constants.ts).
-// Neither service declares/binds these yet, so without this script any message
-// Auth publishes to auth.events is routed nowhere and silently dropped.
+// Manual scaffolding for the downstream queues that user-management and
+// notification own (libs/rabbitmq/src/contracts/constants/queues.constants.ts).
+// Both services now declare/bind these themselves on startup (AuthResultConsumer,
+// CredentialsIssuedConsumer) — use this script to inspect traffic on auth.events
+// without booting either app, or to declare the queues standalone before either
+// service has run.
 //
 // Usage:
 //   node scripts/setup-downstream-test-queues.js            declare + bind both queues
@@ -16,23 +18,23 @@ const EXCHANGE = 'auth.events';
 const QUEUES = [
   {
     name: 'user-mgmt.auth.result',
-    routingKeys: ['auth.user-mgmt.success', 'auth.user-mgmt.failed'],
+    bindingKeys: ['auth.user-mgmt.*'],
   },
   {
     name: 'notification.auth.result',
-    routingKeys: ['auth.notification.credentials-issued'],
+    bindingKeys: ['auth.notification.*'],
   },
 ];
 
 async function setup(channel) {
   await channel.assertExchange(EXCHANGE, 'topic', { durable: true });
 
-  for (const { name, routingKeys } of QUEUES) {
+  for (const { name, bindingKeys } of QUEUES) {
     await channel.assertQueue(name, { durable: true });
-    for (const routingKey of routingKeys) {
-      await channel.bindQueue(name, EXCHANGE, routingKey);
+    for (const bindingKey of bindingKeys) {
+      await channel.bindQueue(name, EXCHANGE, bindingKey);
     }
-    console.log(`Declared "${name}" bound to [${routingKeys.join(', ')}]`);
+    console.log(`Declared "${name}" bound to [${bindingKeys.join(', ')}]`);
   }
 }
 

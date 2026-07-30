@@ -12,31 +12,43 @@ import {
 export class EventPublisherService {
   constructor(private readonly amqpConnection: AmqpConnection) {}
 
-  async publishAuthRegistrationStatus(payload: AuthRegistrationStatusEvent) {
+  async publishAuthRegistrationStatus(
+    payload: Omit<AuthRegistrationStatusEvent, 'occurredAt'>,
+  ) {
     const routingKey =
       payload.status === AuthRegistrationStatus.SUCCESS
-        ? RABBITMQ_ROUTING_KEYS.AUTH_USER_MGMT_SUCCESS
+        ? RABBITMQ_ROUTING_KEYS.AUTH_USER_MGMT_SUCCEEDED
         : RABBITMQ_ROUTING_KEYS.AUTH_USER_MGMT_FAILED;
+
+    const event: AuthRegistrationStatusEvent = {
+      ...payload,
+      occurredAt: new Date().toISOString(),
+    };
 
     await this.amqpConnection.publish(
       RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
       routingKey,
-      payload,
+      event,
       { persistent: true },
     );
   }
 
   async publishCredentialsIssued(
-    payload: Omit<AuthCredentialsIssuedEvent, 'createdAt'>,
+    payload: Omit<AuthCredentialsIssuedEvent, 'occurredAt'>,
   ) {
+    const routingKey =
+      payload.status === AuthRegistrationStatus.SUCCESS
+        ? RABBITMQ_ROUTING_KEYS.AUTH_NOTIFICATION_SUCCEEDED
+        : RABBITMQ_ROUTING_KEYS.AUTH_NOTIFICATION_FAILED;
+
     const event: AuthCredentialsIssuedEvent = {
       ...payload,
-      createdAt: new Date().toISOString(),
+      occurredAt: new Date().toISOString(),
     };
 
     await this.amqpConnection.publish(
       RABBITMQ_EXCHANGES.AUTH_EVENTS.name,
-      RABBITMQ_ROUTING_KEYS.AUTH_CREDENTIALS_ISSUED,
+      routingKey,
       event,
       { persistent: true },
     );
