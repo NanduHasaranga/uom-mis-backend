@@ -57,8 +57,8 @@ db.bulkUploadBatches.insertMany([
     createdCount: 0,
     failedRowCount: 2,
     rowErrors: [
-      'Row 4: missing required value for "NIC"',
-      'Row 5: Registration No "20A" must be 6 digits + 1 letter',
+      'Row 2: missing required value for "NIC"',
+      'Row 3: Registration No "20A" must be 6 digits + 1 letter',
     ],
     createdAt: new Date(),
     updatedAt: new Date(),

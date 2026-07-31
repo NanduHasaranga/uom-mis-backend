@@ -68,6 +68,7 @@ export class BulkUploadService {
           title: row.title,
           dateOfBirth: row.dateOfBirth ? new Date(row.dateOfBirth) : (undefined as unknown as Date),
           nic: row.nic,
+          primaryEmail: row.primaryEmail,
           gender: row.gender,
           homeTelephoneNo: row.homeTelephoneNo,
           mobileNo: row.mobileNo,

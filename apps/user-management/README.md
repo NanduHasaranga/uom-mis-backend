@@ -131,9 +131,9 @@ below) and the dev-only mock consumer's `NODE_ENV` guard.
 - **`parsers/excel-parser.service.ts`** — `exceljs`-based (not `xlsx`/SheetJS
   — that package has long-standing unpatched security advisories). Maps the
   *exact* column set from the real upload template (`COLUMN_MAP`, verbatim
-  header names). Row 1 = headers, rows 2–3 = hints/annotations (skipped,
-  never parsed), data starts row 4. If any "Must" column header is missing
-  entirely, the whole file is rejected before any row is read. Otherwise
+  header names). Row 1 = headers, data starts row 2. If any "Must" column
+  header is missing entirely, the whole file is rejected before any row is
+  read. Otherwise
   every row is validated (Must-field presence, `registrationNo` format
   `\d{6}[A-Za-z]`, `DOB` format, `Gender` M/F, `Z-Score` numeric) and **if
   any row has an error, the entire batch is rejected — no `User` documents

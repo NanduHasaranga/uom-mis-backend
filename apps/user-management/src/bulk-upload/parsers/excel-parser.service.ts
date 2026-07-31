@@ -20,6 +20,7 @@ const COLUMN_MAP: ColumnDef[] = [
   { header: 'Gender', field: 'gender', must: false },
   { header: 'DOB', field: 'dateOfBirth', must: false },
   { header: 'Permanent address', field: 'permanentAddress', must: true },
+  { header: 'Primary Email', field: 'primaryEmail', must: false },
   { header: 'home telephone', field: 'homeTelephoneNo', must: false },
   { header: 'Mobile', field: 'mobileNo', must: false },
   { header: 'AL Index Number', field: 'studentDetails.alIndexNumber', must: false },
@@ -32,9 +33,10 @@ const COLUMN_MAP: ColumnDef[] = [
 ];
 
 const HEADER_ROW = 1;
-const FIRST_DATA_ROW = 4;
+const FIRST_DATA_ROW = 2;
 const REGISTRATION_NO_RE = /^\d{6}[A-Za-z]$/;
 const DOB_RE = /^\d{4}-\d{2}-\d{2}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export interface ParsedStudentRow {
   rowNumber: number;
@@ -46,6 +48,7 @@ export interface ParsedStudentRow {
   gender?: Gender;
   dateOfBirth?: string;
   permanentAddress: string;
+  primaryEmail?: string;
   homeTelephoneNo?: string;
   mobileNo?: string;
   studentDetails: {
@@ -179,6 +182,13 @@ export class ExcelParserService {
     else if (genderRaw === 'F') gender = 'Female';
     else if (genderRaw) rowErrors.push(`Row ${rowNumber}: Gender "${genderRaw}" must be M or F`);
 
+    const primaryEmailRaw = cellText('Primary Email');
+    if (primaryEmailRaw && !EMAIL_RE.test(primaryEmailRaw)) {
+      rowErrors.push(
+        `Row ${rowNumber}: Primary Email "${primaryEmailRaw}" is not a valid email`,
+      );
+    }
+
     return {
       rowNumber,
       username: cellText('Username') || null,
@@ -189,6 +199,7 @@ export class ExcelParserService {
       gender,
       dateOfBirth: dobRaw || undefined,
       permanentAddress: cellText('Permanent address'),
+      primaryEmail: primaryEmailRaw || undefined,
       homeTelephoneNo: cellText('home telephone') || undefined,
       mobileNo: cellText('Mobile') || undefined,
       studentDetails: {
