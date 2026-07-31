@@ -8,7 +8,7 @@ import { QueryUsersDto } from './dto/query-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './schemas/user.schema';
 import type { Gender, UserRole } from './schemas/user.schema';
-import { generateSecondaryEmail } from './utils/owned-fields.util';
+import { generateSecondaryEmail, generateUsername } from './utils/owned-fields.util';
 
 // Deliberately not reusing the Mongoose StudentDetails/StaffDetails classes here:
 // those model the persisted shape (Dates, some required strings); callers (DTOs,
@@ -90,11 +90,18 @@ export class UsersService {
     const fullName = input.fullName ?? deriveFullName(input.firstName, input.lastName);
     const userId = randomUUID();
     const secondaryEmail = input.secondaryEmail ?? generateSecondaryEmail(userId);
+    // Only students carry a batch number, so only students get an auto-generated
+    // username here — staff usernames are unset until that policy exists.
+    const username =
+      input.username ??
+      (input.studentDetails?.administrativeBatch
+        ? generateUsername(fullName, input.studentDetails.administrativeBatch)
+        : undefined);
 
     const user = await this.userModel.create({
       userId,
       role: input.role,
-      username: input.username ?? undefined,
+      username,
       authStatus: 'pending',
       firstName: input.firstName,
       lastName: input.lastName,

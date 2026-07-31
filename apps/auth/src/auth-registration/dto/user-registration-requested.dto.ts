@@ -17,6 +17,10 @@ export class UserRegistrationRequestedDto {
   @IsEmail()
   primaryEmail: string;
 
+  // Not collected on either registration form (no username field on
+  // CreateStudentDto/CreateStaffDto) — user-management always sends '' here
+  // until something assigns a real username later. Not empty-validated, unlike
+  // the fields above.
   @IsString()
   @IsNotEmpty()
   userName: string;
