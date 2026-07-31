@@ -23,12 +23,16 @@ export function buildWelcomeEmailHtml({ username, password }: WelcomeEmailData):
           <td style="padding: 8px 0; font-weight: bold;">${password}</td>
         </tr>
       </table>
-      <p>
-        <a href="${SIGNUP_LINK}"
-           style="display: inline-block; padding: 10px 20px; background-color: #003366; color: #ffffff; text-decoration: none; border-radius: 4px;">
-          Sign in to UoM LMS
-        </a>
-      </p>
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 16px 0;">
+        <tr>
+          <td align="center" bgcolor="#003366" style="background-color: #003366; border-radius: 4px;">
+            <a href="${SIGNUP_LINK}"
+               style="display: inline-block; padding: 10px 20px; font-family: Arial, sans-serif; font-size: 14px; color: #ffffff; text-decoration: none;">
+              Sign in to UoM LMS
+            </a>
+          </td>
+        </tr>
+      </table>
       <p style="color: #777777; font-size: 12px; margin-top: 24px;">
         For security, please change your password after your first login.
       </p>

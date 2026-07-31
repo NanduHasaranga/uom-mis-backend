@@ -36,7 +36,12 @@ export class NotificationService {
 
       await this.notificationLogService.record({
         userId: event.userId,
+        status: event.status,
+        username: event.username,
         email: event.email,
+        fullName: event.fullName,
+        role: event.role,
+        occurredAt: event.occurredAt,
         type: NotificationType.WELCOME_EMAIL,
         subject,
         outcome: NotificationOutcome.SENT,
@@ -44,11 +49,16 @@ export class NotificationService {
     } catch (error) {
       await this.notificationLogService.record({
         userId: event.userId,
+        status: event.status,
+        username: event.username,
         email: event.email,
+        fullName: event.fullName,
+        role: event.role,
+        occurredAt: event.occurredAt,
         type: NotificationType.WELCOME_EMAIL,
         subject,
         outcome: NotificationOutcome.FAILED,
-        reason: error.message,
+        reason: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }

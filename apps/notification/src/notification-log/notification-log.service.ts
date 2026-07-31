@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { AuthRegistrationStatus } from '@app/rabbitmq';
 import {
   NotificationLog,
   NotificationLogDocument,
@@ -9,8 +10,13 @@ import {
 } from './schemas/notification-log.schema';
 
 export interface NotificationLogInput {
-  userId?: string;
+  userId: string;
+  status: AuthRegistrationStatus;
+  username: string;
   email: string;
+  fullName: string;
+  role: string;
+  occurredAt: string;
   type: NotificationType;
   subject: string;
   outcome: NotificationOutcome;
