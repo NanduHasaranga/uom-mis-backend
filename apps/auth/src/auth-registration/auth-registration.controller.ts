@@ -7,11 +7,11 @@ import {
   AuthRegistrationStatus,
   RABBITMQ_EXCHANGES,
   RABBITMQ_QUEUES,
-  RABBITMQ_ROUTING_KEYS,
+  RABBITMQ_BINDING_KEYS,
 } from '@app/rabbitmq';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { AuthRegistrationService } from './auth-registration.service';
+import { AuthRegistrationService, REGISTRATION_ACTION } from './auth-registration.service';
 import { EventPublisherService } from '../events/event-publisher.service';
 import { UserRegistrationRequestedDto } from './dto/user-registration-requested.dto';
 import { AuditService } from '../audit/audit.service';
@@ -29,8 +29,8 @@ export class AuthRegistrationController {
 
   @RabbitSubscribe({
     exchange: RABBITMQ_EXCHANGES.USER_MGMT_COMMANDS.name,
-    routingKey: RABBITMQ_ROUTING_KEYS.USER_REGISTRATION,
-    queue: RABBITMQ_QUEUES.AUTH_USER_REGISTRATION_REQUESTED.name,
+    routingKey: RABBITMQ_BINDING_KEYS.USER_REGISTER,
+    queue: RABBITMQ_QUEUES.AUTH_USER_REGISTER.name,
     queueOptions: { durable: true },
     errorBehavior: MessageHandlerErrorBehavior.NACK,
   })
@@ -48,7 +48,7 @@ export class AuthRegistrationController {
         .join('; ');
 
       this.logger.error({
-        message: 'Rejected invalid user.registration payload',
+        message: 'Rejected invalid user.register payload',
         correlationId: payload.correlationId,
         userId: payload.userId,
         reason,
@@ -58,7 +58,7 @@ export class AuthRegistrationController {
         correlationId: payload.correlationId,
         userId: payload.userId,
         email: payload.primaryEmail,
-        action: RABBITMQ_ROUTING_KEYS.USER_REGISTRATION,
+        action: REGISTRATION_ACTION,
         outcome: AuthRequestOutcome.REJECTED,
         reason,
       });

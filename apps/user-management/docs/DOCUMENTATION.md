@@ -9,8 +9,7 @@ are owned by other teams and are **not** built here). It owns:
 - Student registration (single-entry and bulk Excel/CSV upload)
 - Staff/admin registration (single-entry)
 - The `users` and `bulkUploadBatches` MongoDB collections
-- The async registration handshake with Auth Service and Notification Service
-  over RabbitMQ
+- The async registration handshake with Auth Service over RabbitMQ
 
 **Explicitly out of scope** (per the originating spec, confirmed not built here):
 - Keycloak/LDAP integration itself (Auth Service owns this — we only verify
@@ -21,9 +20,11 @@ are owned by other teams and are **not** built here). It owns:
 - The Admin/User frontends
 - API Gateway (Kong) configuration
 
-This service never stores a password, and never calls Auth Service or
-Notification Service directly over HTTP — the only channel between the three
-microservices is RabbitMQ (see [§6](#6-rabbitmq-contract)).
+This service never stores a password, and never calls Auth Service directly
+over HTTP — the only channel to Auth is RabbitMQ (see
+[§6](#6-rabbitmq-contract)). It has no channel to Notification Service at
+all, direct or otherwise — Auth Service notifies it once credentials are
+issued.
 
 ## 2. Architecture Overview
 
@@ -39,11 +40,12 @@ flowchart TB
     subgraph UMS["User Management Service (this repo)"]
         HTTP["HTTP layer\nControllers + Guards + Pipes"]
         Svc["Service layer\nUsersService / BulkUploadService"]
-        Mongo[("MongoDB\nusers · bulkUploadBatches · processedEvents")]
-        MsgMod["Messaging layer\nPublishers + Consumer"]
+        Mongo[("MongoDB\nusers · bulkUploadBatches")]
+        MsgMod["Messaging layer\nPublisher + Consumer"]
     end
 
-    Exchange{{"RabbitMQ\nmis.user.events (topic exchange)"}}
+    CmdExchange{{"RabbitMQ\nuser-mgmt.commands (direct)"}}
+    EventExchange{{"RabbitMQ\nauth.events (topic)"}}
 
     Auth["Auth Service\n(Keycloak / LDAP)"]
     Notif["Notification Service\n(SMTP / SMS)"]
@@ -55,20 +57,23 @@ flowchart TB
     Svc --> Mongo
     Svc --> MsgMod
     MsgMod --> Mongo
-    MsgMod -- "auth.registration.requested" --> Exchange
-    Exchange -- "auth.registration.requested" --> Auth
-    Auth -- "user.registration.completed" --> Exchange
-    Exchange -- "user.registration.completed" --> MsgMod
-    MsgMod -- "notification.user.activated" --> Exchange
-    Exchange -- "notification.user.activated" --> Notif
+    MsgMod -- "user.register" --> CmdExchange
+    CmdExchange -- "user.register" --> Auth
+    Auth -- "auth.user-mgmt.succeeded/.failed" --> EventExchange
+    EventExchange -- "auth.user-mgmt.succeeded/.failed" --> MsgMod
+    Auth -- "auth.notification.succeeded" --> EventExchange
+    EventExchange -- "auth.notification.succeeded" --> Notif
 ```
 
 Key architectural decisions baked into this diagram:
 - HTTP only exists between the client-facing Gateway and this service — every
-  other microservice-to-microservice interaction is async, via the single
-  topic exchange `mis.user.events`.
+  other microservice-to-microservice interaction is async, via RabbitMQ
+  (`user-mgmt.commands` for the outbound command to Auth, `auth.events` for
+  inbound results from Auth).
 - This service owns its own MongoDB database exclusively — no other service
   reads or writes it directly.
+- This service and Notification Service never talk to each other, directly or
+  over RabbitMQ — Auth Service is the only thing either of them talks to.
 
 ## 3. Actors & Use Cases
 
@@ -76,8 +81,8 @@ Key architectural decisions baked into this diagram:
 - **Admin** — the only human actor that calls this service directly (via the
   Gateway); authenticated as `role: admin` in their JWT.
 - **Auth Service** — external system, replies asynchronously via RabbitMQ.
-- **Notification Service** — external system, receives events via RabbitMQ,
-  never talks back to this service.
+  (Notification Service is not an actor here — it's notified by Auth Service
+  directly and never interacts with this service in any way.)
 - **Anyone (unauthenticated)** — read endpoints (`GET /users`, `GET /users/:id`,
   `GET /bulk-uploads/:batchId`, `GET /health`) require no token today; see
   [§9 Known limitations](#9-known-limitations--spec-gaps) for the caveat.
@@ -87,7 +92,6 @@ flowchart LR
     Admin(["👤 Admin"])
     Anyone(["👤 Any caller"])
     AuthSvc(["🔌 Auth Service"])
-    NotifSvc(["🔌 Notification Service"])
 
     subgraph System["User Management Service"]
         UC1(["Register student"])
@@ -98,9 +102,8 @@ flowchart LR
         UC6(["View user details"])
         UC7(["Update user profile"])
         UC8(["Check service health"])
-        UC9(["Publish registration request"])
+        UC9(["Publish registration command"])
         UC10(["Receive registration result"])
-        UC11(["Publish activation notification"])
     end
 
     Admin --> UC1
@@ -118,15 +121,17 @@ flowchart LR
     UC3 -.->|includes, once per row| UC9
 
     AuthSvc --> UC10
-    UC10 -.->|includes, on success| UC11
-    UC11 --> NotifSvc
 ```
+
+Notification Service isn't an actor here — it never interacts with this
+service in any way; Auth Service notifies it directly once credentials are
+issued.
 
 ### Use case narratives
 
 | Use case | Trigger | Outcome |
 |---|---|---|
-| Register student | Admin submits single-student form | `pending` user created, `auth.registration.requested` published, `202` returned with `userId` |
+| Register student | Admin submits single-student form | `pending` user created, `user.register` published, `202` returned with `userId` |
 | Register staff/admin | Admin submits single staff/admin form | Same as above, `role` taken from the request body |
 | Bulk-upload students | Admin uploads Excel/CSV + batch metadata | File parsed and validated up front; on any row error, **zero** users are created and the batch records the rejection; otherwise one `pending` user + one publish per valid row |
 | View batch status | Admin (or anyone) queries a `batchId` | Batch totals + live `authStatus` counts across the batch's users |
@@ -134,9 +139,8 @@ flowchart LR
 | View user details | Any caller, by `id` | Single user document |
 | Update user profile | Admin, by `id` | Editable fields only — not `username`/`role`/`authStatus` |
 | Check service health | Any caller | Liveness probe |
-| Publish registration request | Internal — fired by the three registration use cases | `auth.registration.requested` event on `mis.user.events` |
-| Receive registration result | Auth Service replies async | `authStatus` updated to `active`/`failed`; idempotent against redelivery |
-| Publish activation notification | Internal — fired only when the result above is a success | `notification.user.activated` event on `mis.user.events` |
+| Publish registration command | Internal — fired by the three registration use cases | `user.register` command on `user-mgmt.commands` |
+| Receive registration result | Auth Service replies async on `auth.events` | `authStatus` updated to `active`/`failed`; redelivery-safe (no-op once no longer `pending`) |
 
 ## 4. Database Schema (ERD)
 
@@ -144,10 +148,10 @@ flowchart LR
 erDiagram
     USER {
         ObjectId _id PK
+        string userId UK "external id, required — everything outside this service refers to a user by this, never _id"
         string username UK "sparse, optional"
         string role "student | staff | admin"
         string authStatus "pending | active | failed"
-        string keycloakUserId
         string failureReason
         string firstName
         string lastName
@@ -166,7 +170,6 @@ erDiagram
         string telephone
         ObjectId batchId FK "ref BulkUploadBatch, optional"
         ObjectId createdBy "admin id, required"
-        Date loginLinkSentAt
         Date createdAt
         Date updatedAt
     }
@@ -212,28 +215,16 @@ erDiagram
         Date updatedAt
     }
 
-    PROCESSED_EVENT {
-        ObjectId _id PK
-        string eventId UK "required, RabbitMQ idempotency key"
-        string eventType "required"
-        string correlationId "loose ref to User._id"
-        Date createdAt
-        Date updatedAt
-    }
-
     USER ||--o| STUDENT_DETAILS : "embeds when role=student"
     USER ||--o| STAFF_DETAILS : "embeds when role=staff/admin"
     BULK_UPLOAD_BATCH ||--o{ USER : "batchId (bulk-uploaded rows only)"
-    USER ||--o{ PROCESSED_EVENT : "correlationId (not FK-enforced)"
 ```
 
 `STUDENT_DETAILS`/`STAFF_DETAILS` are embedded sub-documents
 (`@Schema({ _id: false })`), not separate collections — only one is populated
 per user, depending on `role`. `batchId` only exists on bulk-uploaded users.
-`PROCESSED_EVENT.correlationId` is a loose reference (a string carried
-through from the RabbitMQ envelope) — Mongo has no FK enforcement across
-collections, so nothing guarantees it points at a real `USER._id` beyond the
-application logic always setting it that way.
+There's no separate idempotency-tracking collection — redelivery safety is
+handled in `UsersService` itself (see `messaging/` in [§7](#7-module-reference)).
 
 ## 5. Sequence Diagrams
 
@@ -246,36 +237,30 @@ sequenceDiagram
     participant Guard as RolesGuard
     participant Svc as UsersService
     participant Mongo
-    participant MQ as RabbitMQ (mis.user.events)
+    participant CmdEx as RabbitMQ (user-mgmt.commands)
+    participant EvEx as RabbitMQ (auth.events)
     participant AuthSvc as Auth Service
-    participant Consumer as AuthRegistrationResultConsumer
-    participant Idem as ProcessedEventsService
-    participant NotifPub as NotificationPublisher
-    participant NotifSvc as Notification Service
+    participant Consumer as AuthResultConsumer
 
     Admin->>API: POST /users/students (Bearer JWT)
     API->>Guard: RolesGuard.canActivate()
     Guard-->>API: OK (role=admin)
     API->>Svc: createPendingUser(input)
     Svc->>Mongo: insert User {authStatus: pending}
-    Svc->>MQ: publish auth.registration.requested
+    Svc->>CmdEx: publish user.register
     Svc-->>API: user (with _id)
     API-->>Admin: 202 Accepted {userId}
 
-    MQ->>AuthSvc: auth.registration.requested
-    Note over AuthSvc: creates Keycloak account,<br/>generates credentials
-    AuthSvc->>MQ: publish user.registration.completed {status: success}
+    CmdEx->>AuthSvc: user.register
+    Note over AuthSvc: creates Keycloak/LDAP account,<br/>generates credentials
+    AuthSvc->>EvEx: publish auth.user-mgmt.succeeded
 
-    MQ->>Consumer: user.registration.completed
-    Consumer->>Idem: markProcessed(eventId)
-    Idem-->>Consumer: true (first time seen)
-    Consumer->>Svc: applyRegistrationResult(data)
-    Svc->>Mongo: update User {authStatus: active, keycloakUserId, username}
+    EvEx->>Consumer: auth.user-mgmt.succeeded
+    Consumer->>Svc: finalizeAfterAuthentication(userId)
+    Svc->>Mongo: update User {authStatus: active} (only while still pending)
     Svc-->>Consumer: updated user
-    Consumer->>NotifPub: publish(...)
-    NotifPub->>MQ: publish notification.user.activated
-    MQ->>NotifSvc: notification.user.activated
-    Note over NotifSvc: sends email/SMS with login link
+
+    Note over AuthSvc,EvEx: Auth separately publishes auth.notification.succeeded<br/>on auth.events, straight to Notification Service —<br/>not visible to or routed through this service
 ```
 
 ### 5.2 Single registration — Auth Service rejects it
@@ -283,42 +268,43 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant AuthSvc as Auth Service
-    participant MQ as RabbitMQ
-    participant Consumer as AuthRegistrationResultConsumer
-    participant Idem as ProcessedEventsService
+    participant EvEx as RabbitMQ (auth.events)
+    participant Consumer as AuthResultConsumer
     participant Svc as UsersService
     participant Mongo
 
-    AuthSvc->>MQ: user.registration.completed {status: failed, failureReason}
-    MQ->>Consumer: deliver
-    Consumer->>Idem: markProcessed(eventId)
-    Idem-->>Consumer: true
-    Consumer->>Svc: applyRegistrationResult(data)
+    AuthSvc->>EvEx: publish auth.user-mgmt.failed {reason}
+    EvEx->>Consumer: deliver
+    Consumer->>Svc: recordAuthenticationFailure(userId, reason)
     Svc->>Mongo: update User {authStatus: failed, failureReason}
-    Note over Consumer: authStatus !== 'active' →<br/>notification.user.activated is NOT published
+    Note over AuthSvc,EvEx: Notification is never told about this at all —<br/>auth.notification.succeeded is the only outcome ever published to it
 ```
 
-### 5.3 Redelivery — idempotency in action
+### 5.3 Redelivery — how duplicates are handled
+
+There's no separate idempotency-tracking collection or event-id ledger —
+redelivery safety comes from `finalizeAfterAuthentication` only acting while
+the user's `authStatus` is still `pending`.
 
 ```mermaid
 sequenceDiagram
-    participant MQ as RabbitMQ
-    participant Consumer as AuthRegistrationResultConsumer
-    participant Idem as ProcessedEventsService
+    participant EvEx as RabbitMQ (auth.events)
+    participant Consumer as AuthResultConsumer
+    participant Svc as UsersService
+    participant Mongo
 
-    MQ->>Consumer: user.registration.completed (eventId=E1) — 1st delivery
-    Consumer->>Idem: markProcessed(E1)
-    Idem->>Idem: insert {eventId: E1} — succeeds
-    Idem-->>Consumer: true
-    Note over Consumer: proceeds normally (update user, maybe notify)
+    EvEx->>Consumer: auth.user-mgmt.succeeded (userId=U1) — 1st delivery
+    Consumer->>Svc: finalizeAfterAuthentication(U1)
+    Svc->>Mongo: findOne({userId: U1}) — authStatus is 'pending'
+    Svc->>Mongo: update {authStatus: active}
+    Svc-->>Consumer: updated user
 
-    Note over MQ,Consumer: connection drop before ack → RabbitMQ redelivers
+    Note over EvEx,Consumer: connection drop before ack → RabbitMQ redelivers
 
-    MQ->>Consumer: user.registration.completed (eventId=E1) — 2nd delivery
-    Consumer->>Idem: markProcessed(E1)
-    Idem->>Idem: insert {eventId: E1} — duplicate key (11000)
-    Idem-->>Consumer: false
-    Note over Consumer: returns immediately —<br/>no duplicate update, no duplicate notification
+    EvEx->>Consumer: auth.user-mgmt.succeeded (userId=U1) — 2nd delivery
+    Consumer->>Svc: finalizeAfterAuthentication(U1)
+    Svc->>Mongo: findOne({userId: U1}) — authStatus is already 'active'
+    Svc-->>Consumer: null — no-op, no duplicate update
 ```
 
 ### 5.4 Bulk upload — parse failure vs. partial row failure
@@ -395,21 +381,24 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> pending: user created (single or bulk row)
-    pending --> active: user.registration.completed {status: success}
-    pending --> failed: user.registration.completed {status: failed}
+    pending --> active: auth.user-mgmt.succeeded
+    pending --> failed: auth.user-mgmt.failed
     active --> [*]
     failed --> [*]
 
     note right of pending
         Set immediately on User.create(),
-        before auth.registration.requested
+        before user.register
         is even published.
     end note
 
     note right of active
-        keycloakUserId + username (if newly
-        assigned) are stored here. Triggers
-        notification.user.activated.
+        Only authStatus changes here — Auth
+        doesn't send back a username or any
+        credentials on this event. Auth separately
+        notifies Notification Service directly
+        (auth.notification.succeeded); this service
+        has no visibility into that.
     end note
 
     note right of failed
@@ -436,7 +425,7 @@ stateDiagram-v2
 | `common/common.module.ts` | Wires `RolesGuard` + `TOKEN_VERIFIER`, exported to whoever needs them |
 | `users/schemas/user.schema.ts` | The `users` collection |
 | `users/dto/*.ts` | Request validation for all `/users/*` endpoints |
-| `users/users.service.ts` | Core logic: create-pending, apply-result, list/find/update |
+| `users/users.service.ts` | Core logic: create-pending, finalize/record auth result, list/find/update |
 | `users/users.controller.ts` | `/users/*` HTTP routes |
 | `users/users.module.ts` | Wires the above; `forwardRef` to `MessagingModule` |
 | `bulk-upload/schemas/bulk-upload-batch.schema.ts` | The `bulkUploadBatches` collection |
@@ -445,13 +434,10 @@ stateDiagram-v2
 | `bulk-upload/bulk-upload.service.ts` | Orchestrates parse → per-row create → batch status |
 | `bulk-upload/bulk-upload.controller.ts` | `/users/bulk-upload`, `/bulk-uploads/:batchId` |
 | `bulk-upload/bulk-upload.module.ts` | Wires the above |
-| `messaging/envelope.util.ts` | `buildEnvelope()` — single source of envelope shape |
-| `messaging/contracts/*.ts` | Event payload interfaces + exchange/queue name constants |
-| `messaging/publishers/*.ts` | `AuthRegistrationPublisher`, `NotificationPublisher` |
-| `messaging/consumers/auth-registration-result.consumer.ts` | Consumes `user.registration.completed` |
-| `messaging/idempotency/*.ts` | `processedEvents` collection + `markProcessed()` guard |
-| `messaging/mock/mock-auth.consumer.ts` | Dev-only simulated Auth Service reply |
-| `messaging/messaging.module.ts` | `RabbitMQModule.forRootAsync` + wires all of the above |
+| `messaging/user-registration.publisher.ts` | `UserRegistrationPublisher` — publishes `user.register` on `user-mgmt.commands` |
+| `messaging/auth-result.consumer.ts` | `AuthResultConsumer` — consumes `auth.user-mgmt.succeeded`/`.failed` off `auth.events` |
+| `messaging/messaging.module.ts` | `RabbitMQModule.forRootAsync` + wires the publisher and consumer above |
+| `libs/rabbitmq/src/contracts/` (shared lib, not in this app) | Exchange/queue/routing-key constants + event payload interfaces, shared with Auth/Notification — see `docs/rabbitmq_naming.md` at the repo root |
 | `health/health.controller.ts` | `GET /health` |
 | `main.ts` | Bootstrap — loads `.env`, global prefix, pipes, filter, interceptor |
 | `app.module.ts` | Root module composition |
@@ -599,14 +585,14 @@ Body (`UpdateUserDto`, all optional): `firstName`, `lastName`,
   schema doesn't require it. Rows missing `DOB` pass the parser's row
   validation but fail at `User.create()` — caught per-row (doesn't abort the
   batch) rather than at the earlier file-level check.
-- **`processedEvents` has no TTL/cleanup.** Deliberately simple for a
-  single-instance dev setup; grows unboundedly in a long-lived deployment.
 - **Failed registrations have no retry endpoint.** Once `authStatus: failed`,
-  there's no built-in way to re-trigger `auth.registration.requested` — an
-  admin would need to re-register the user from scratch (a new document).
-- **Username auto-assignment format is unconfirmed** with the Auth team (spec
-  §9, open item) — `MockAuthConsumer` invents `role.last6ofid` as a
-  placeholder format purely for local testing.
+  there's no built-in way to re-trigger `user.register` — an admin would need
+  to re-register the user from scratch (a new document).
+- **`username` is never actually populated by the registration-result flow.**
+  The `User` schema has a `username` field, but `AuthResultConsumer` /
+  `finalizeAfterAuthentication` only ever update `authStatus` on success —
+  nothing currently writes `username`. Assignment/format ownership is still
+  unconfirmed with the Auth team.
 
 ## 10. Non-Functional Requirements Coverage
 
@@ -615,8 +601,8 @@ Body (`UpdateUserDto`, all optional): `firstName`, `lastName`,
 | DTO validation, 400 on failure | Global `ValidationPipe` (`whitelist`, `transform`, `forbidNonWhitelisted`) |
 | Publish failure ≠ silent orphan | Single registration: rethrown, surfaces as a failed HTTP response. Bulk: caught per-row, tallied into `rowErrors`/`failedRowCount`, visible via the status endpoint |
 | Structured JSON logging | `LoggingInterceptor` (per-request) + every service/consumer logs `JSON.stringify({...})` with `correlationId` where relevant |
-| `.env.example` | Present, all 5 required vars + 2 dev-only flags |
-| Unit tests | `UsersService`, `BulkUploadService`, both consumers — 15 tests, Mongo/AMQP mocked |
+| `.env.example` | Present, all 4 required vars + 1 dev-only flag |
+| Unit tests | `UsersService`, `BulkUploadService`, `AuthResultConsumer` — 17 tests, Mongo/AMQP mocked |
 | `docker-compose.yml` for local dev | Mongo + RabbitMQ (management UI) + this service |
 
 ## 11. Environment Variables
@@ -625,17 +611,13 @@ Body (`UpdateUserDto`, all optional): `firstName`, `lastName`,
 |---|---|---|
 | `MONGODB_URI` | `mongodb://localhost:27017/user-management` | Mongo connection string |
 | `RABBITMQ_URI` | `amqp://localhost:5672` | RabbitMQ connection string |
-| `RABBITMQ_EXCHANGE` | `mis.user.events` | Topic exchange name |
 | `KEYCLOAK_JWKS_URI` | *(empty — throws if used in `jwks` mode)* | JWKS endpoint for real token verification |
 | `PORT` | `3000` | HTTP listen port |
-| `LOGIN_URL` | `http://localhost:4200/login` | Included in `notification.user.activated` payload |
 | `TOKEN_VERIFIER_MODE` | `jwks` | `stub` (no signature check, local dev/test) or `jwks` (real Keycloak verification) |
-| `AUTH_SERVICE_MOCK_ENABLED` | `false` (unset) | `true` registers `MockAuthConsumer`, simulating Auth Service replies. Local dev/test only — the consumer's constructor throws if `NODE_ENV=production` as a backstop |
 
-`TOKEN_VERIFIER_MODE` and `AUTH_SERVICE_MOCK_ENABLED` are deliberately kept
-separate — they gate unrelated concerns (auth bypass vs. message-flow
-simulation) and conflating them would make it easy to accidentally leave one
-on.
+Exchange, queue, and routing/binding key names are hardcoded constants shared
+with Auth/Notification via the `@app/rabbitmq` lib
+(`libs/rabbitmq/src/contracts/constants/`) — not configurable via env var.
 
 ## 12. Testing
 
@@ -644,7 +626,7 @@ npx jest apps/user-management
 ```
 
 `test/users.service.spec.ts`, `test/bulk-upload.service.spec.ts`,
-`test/messaging.consumer.spec.ts` — 15 pure unit tests. Mongoose models and
+`test/auth-result.consumer.spec.ts` — 17 pure unit tests. Mongoose models and
 `AmqpConnection` are mocked; no real Mongo/RabbitMQ needed to run them.
 
 ## 13. Deployment
@@ -658,10 +640,11 @@ shares one root `package.json`/`node_modules` with `api-gateway`/`auth`/
 docker compose -f apps/user-management/docker-compose.yml up -d
 ```
 
-Brings up Mongo, RabbitMQ (management UI on `:15672`), and the service
-itself on `:3000`, with `TOKEN_VERIFIER_MODE=stub` and
-`AUTH_SERVICE_MOCK_ENABLED=true` by default for a fully self-contained local
-stack — override both via env for anything resembling a real deployment.
+Brings up Mongo, RabbitMQ (management UI on `:15672`), and the service itself
+on `:3000`, with `TOKEN_VERIFIER_MODE=stub` by default (no real Keycloak
+needed to call the API locally) — override it via env for anything
+resembling a real deployment. A real Auth Service still needs to be running
+(or reachable) for the RabbitMQ round-trip itself to complete.
 
 ## 14. Troubleshooting Log (real issues hit while building this)
 

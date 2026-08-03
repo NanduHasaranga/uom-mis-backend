@@ -14,7 +14,7 @@ import { EventPublisherService } from '../events/event-publisher.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthRequestOutcome } from '../audit/schemas/auth-request-log.schema';
 
-const REGISTRATION_ACTION = 'user.registration';
+export const REGISTRATION_ACTION = 'user.registration';
 
 @Injectable()
 export class AuthRegistrationService {
@@ -104,10 +104,12 @@ export class AuthRegistrationService {
 
       await this.eventPublisherService.publishCredentialsIssued({
         userId: event.userId,
+        status: AuthRegistrationStatus.SUCCESS,
+        username: event.userName,
         email: event.secondaryEmail,
         fullName: event.fullName,
         role: event.role,
-        temporaryPassword,
+        password: temporaryPassword,
       });
 
       await this.eventPublisherService.publishAuthRegistrationStatus({

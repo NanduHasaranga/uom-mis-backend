@@ -11,10 +11,10 @@ export class UserRegistrationPublisher {
   async publish(command: UserRegistrationRequestedCommand): Promise<void> {
     await this.amqpConnection.publish(
       RABBITMQ_EXCHANGES.USER_MGMT_COMMANDS.name,
-      RABBITMQ_ROUTING_KEYS.USER_REGISTRATION,
+      RABBITMQ_ROUTING_KEYS.USER_REGISTER,
       command,
       { persistent: true },
     );
-    this.logger.log(`Published user.registration for user ${command.userId}`);
+    this.logger.log(`Published user.register for user ${command.userId}`);
   }
 }
