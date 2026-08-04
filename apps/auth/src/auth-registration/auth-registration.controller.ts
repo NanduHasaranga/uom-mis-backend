@@ -30,7 +30,7 @@ export class AuthRegistrationController {
   @RabbitSubscribe({
     exchange: RABBITMQ_EXCHANGES.USER_MGMT_COMMANDS.name,
     routingKey: RABBITMQ_BINDING_KEYS.USER_REGISTER,
-    queue: RABBITMQ_QUEUES.AUTH_USER_REGISTRATION_REQUESTED.name,
+    queue: RABBITMQ_QUEUES.AUTH_USER_REGISTER.name,
     queueOptions: { durable: true },
     errorBehavior: MessageHandlerErrorBehavior.NACK,
   })

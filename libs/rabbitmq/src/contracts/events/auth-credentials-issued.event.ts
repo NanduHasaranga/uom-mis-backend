@@ -10,5 +10,5 @@ export interface AuthCredentialsIssuedEvent {
     // signupLink?: string;
     occurredAt: string;
     role: string;
-    // fullName: string;
+    fullName: string;
 }

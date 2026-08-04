@@ -106,6 +106,7 @@ export class AuthRegistrationService {
         userId: event.userId,
         username: event.userName,
         email: event.primaryEmail,
+        fullName: event.fullName,
         status: AuthRegistrationStatus.SUCCESS,
         role: event.role,
         password: temporaryPassword,
