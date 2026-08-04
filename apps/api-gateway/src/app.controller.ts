@@ -13,4 +13,9 @@ export class AppController {
   login(@Body() body: any) {
     return this.appService.login(body);
   }
+
+  @Post('users')
+  createUser(@Body() body: any) {
+    return this.appService.createUser(body);
+  }
 }

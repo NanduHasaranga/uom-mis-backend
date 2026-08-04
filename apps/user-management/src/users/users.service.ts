@@ -8,7 +8,7 @@ import { QueryUsersDto } from './dto/query-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './schemas/user.schema';
 import type { Gender, UserRole } from './schemas/user.schema';
-import { generateSecondaryEmail } from './utils/owned-fields.util';
+import { generateSecondaryEmail, generateUsername } from './utils/owned-fields.util';
 
 // Deliberately not reusing the Mongoose StudentDetails/StaffDetails classes here:
 // those model the persisted shape (Dates, some required strings); callers (DTOs,
@@ -74,12 +74,12 @@ export class UsersService {
   ) {}
 
   /**
-   * Creates a `pending` user document and publishes user.registration on
+   * Creates a `pending` user document and publishes user.register on
    * user-mgmt.commands — the trigger that tells Auth Service to create
    * credentials for this user. userId/secondaryEmail (fields User Management
    * owns, never Auth Service) are generated up front here and included in
    * that message, so Auth Service has everything it needs immediately — no
-   * reply is sent back after auth.user-mgmt.success/.failed, see
+   * reply is sent back after auth.user-mgmt.succeeded/.failed, see
    * finalizeAfterAuthentication below. Callers decide how to handle a publish
    * failure: single-registration callers let it propagate (surfaces as a
    * failed HTTP response, not a silently orphaned doc); bulk-upload wraps
@@ -90,11 +90,18 @@ export class UsersService {
     const fullName = input.fullName ?? deriveFullName(input.firstName, input.lastName);
     const userId = randomUUID();
     const secondaryEmail = input.secondaryEmail ?? generateSecondaryEmail(userId);
+    // Only students carry a batch number, so only students get an auto-generated
+    // username here — staff usernames are unset until that policy exists.
+    const username =
+      input.username ??
+      (input.studentDetails?.administrativeBatch
+        ? generateUsername(fullName, input.studentDetails.administrativeBatch)
+        : undefined);
 
     const user = await this.userModel.create({
       userId,
       role: input.role,
-      username: input.username ?? undefined,
+      username,
       authStatus: 'pending',
       firstName: input.firstName,
       lastName: input.lastName,
@@ -138,7 +145,7 @@ export class UsersService {
     } catch (err) {
       this.logger.error(
         JSON.stringify({
-          msg: 'failed to publish user.registration — user document left in pending state',
+          msg: 'failed to publish user.register — user document left in pending state',
           userId,
           error: err instanceof Error ? err.message : String(err),
         }),
@@ -150,7 +157,7 @@ export class UsersService {
   }
 
   /**
-   * Called when Auth Service reports auth.user-mgmt.success for a pending
+   * Called when Auth Service reports auth.user-mgmt.succeeded for a pending
    * user. userId/secondaryEmail were already generated and sent to Auth
    * Service up front in createPendingUser, so this just flips authStatus to
    * active — no reply is published back.
@@ -166,7 +173,7 @@ export class UsersService {
     if (!user || user.authStatus !== 'pending') {
       this.logger.warn(
         JSON.stringify({
-          msg: 'skipping auth.user-mgmt.success — no pending user for this userId (unknown or already processed)',
+          msg: 'skipping auth.user-mgmt.succeeded — no pending user for this userId (unknown or already processed)',
           userId,
         }),
       );

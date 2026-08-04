@@ -104,10 +104,11 @@ export class AuthRegistrationService {
 
       await this.eventPublisherService.publishCredentialsIssued({
         userId: event.userId,
+        username: event.userName,
         email: event.primaryEmail,
-        fullName: event.fullName,
+        status: AuthRegistrationStatus.SUCCESS,
         role: event.role,
-        temporaryPassword,
+        password: temporaryPassword,
       });
 
       await this.eventPublisherService.publishAuthRegistrationStatus({
