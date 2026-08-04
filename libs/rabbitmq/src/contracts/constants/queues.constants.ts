@@ -4,8 +4,7 @@ export interface QueueDefinition {
 }
 
 export const RABBITMQ_QUEUES = {
-  AUTH_USER_REGISTER: { name: 'auth.user.register', durable: true },
-  USER_MGMT_AUTH_RESULT: { name: 'user-mgmt.auth.result', durable: true },
-  NOTIFICATION_AUTH_RESULT: { name: 'notification.auth.result', durable: true },
-  
+    USER_MGMT_AUTH_RESULT_QUEUE: { name: 'user-mgmt.auth.result', durable: true },
+    NOTIFICATION_CREDENTIALS: { name: 'notification.auth.result', durable: true },
+    AUTH_USER_REGISTRATION_REQUESTED: { name: 'auth.user.register', durable: true },
 } as const satisfies Record<string, QueueDefinition>;

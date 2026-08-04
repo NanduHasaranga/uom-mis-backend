@@ -34,7 +34,16 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
+  mongo:
+    image: mongo:7
+    container_name: uom-mis-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
 volumes:
   ldap_data:
   ldap_config:
   rabbitmq_data:
+  mongo_data:

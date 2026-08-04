@@ -7,8 +7,8 @@ export interface AuthCredentialsIssuedEvent {
     email: string;
     // password/signupLink only exist when status is SUCCESS
     password?: string;
-    signupLink?: string;
+    // signupLink?: string;
     occurredAt: string;
     role: string;
-    fullName: string;
+    // fullName: string;
 }
