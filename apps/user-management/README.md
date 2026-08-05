@@ -242,10 +242,8 @@ erDiagram
         string authStatus "pending | active | failed"
         string keycloakUserId
         string failureReason
-        string firstName
-        string lastName
         string nameWithInitials "required"
-        string fullName
+        string fullName "required"
         string title
         Date dateOfBirth "required"
         string nic UK "required, sparse"

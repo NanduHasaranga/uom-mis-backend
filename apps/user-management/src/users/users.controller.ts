@@ -35,8 +35,6 @@ export class UsersController {
   async registerStudent(@Body() dto: CreateStudentDto, @Req() req: AuthedRequest) {
     const user = await this.usersService.createPendingUser({
       role: 'student',
-      firstName: dto.firstName,
-      lastName: dto.lastName,
       nameWithInitials: dto.nameWithInitials,
       fullName: dto.fullName,
       title: dto.title,
@@ -68,9 +66,8 @@ export class UsersController {
   async registerStaff(@Body() dto: CreateStaffDto, @Req() req: AuthedRequest) {
     const user = await this.usersService.createPendingUser({
       role: dto.role,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
       nameWithInitials: dto.nameWithInitials,
+      fullName: dto.fullName,
       title: dto.title,
       dateOfBirth: new Date(dto.dateOfBirth),
       nic: dto.nic,

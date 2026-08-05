@@ -36,9 +36,8 @@ describe('UsersService', () => {
 
       const result = await service.createPendingUser({
         role: 'student',
-        firstName: 'A',
-        lastName: 'Perera',
         nameWithInitials: 'A.B. Perera',
+        fullName: 'A Perera',
         dateOfBirth: new Date('2003-01-01'),
         nic: '200301012345',
         mobileNo: '0771234567',
@@ -66,6 +65,7 @@ describe('UsersService', () => {
       await service.createPendingUser({
         role: 'student',
         nameWithInitials: 'A.B. Perera',
+        fullName: 'A.B. Perera',
         dateOfBirth: new Date(),
         nic: '200301012345',
         createdBy: new Types.ObjectId(),
@@ -93,6 +93,7 @@ describe('UsersService', () => {
         service.createPendingUser({
           role: 'student',
           nameWithInitials: 'A.B. Perera',
+          fullName: 'A.B. Perera',
           dateOfBirth: new Date(),
           nic: '200301012345',
           createdBy: new Types.ObjectId(),

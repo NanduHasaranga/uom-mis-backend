@@ -22,9 +22,8 @@ class StaffDetailsDto {
 export class CreateStaffDto {
   @IsIn(['staff', 'admin']) role: 'staff' | 'admin';
 
-  @IsString() @IsNotEmpty() firstName: string;
-  @IsString() @IsNotEmpty() lastName: string;
   @IsString() @IsNotEmpty() nameWithInitials: string;
+  @IsString() @IsNotEmpty() fullName: string;
   @IsOptional() @IsString() title?: string;
 
   @IsDateString() dateOfBirth: string;

@@ -55,11 +55,8 @@ export class User extends Document {
   authStatus: AuthStatus;
   @Prop() failureReason: string;
 
-  // firstName/lastName are collected on single-entry forms but not in the bulk template
-  @Prop() firstName: string;
-  @Prop() lastName: string;
   @Prop({ required: true }) nameWithInitials: string;
-  @Prop() fullName: string;
+  @Prop({ required: true }) fullName: string;
   @Prop() title: string;
   @Prop({ required: true }) dateOfBirth: Date;
   @Prop({ required: true, unique: true, sparse: true }) nic: string;

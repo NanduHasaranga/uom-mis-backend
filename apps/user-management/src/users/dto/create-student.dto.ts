@@ -36,13 +36,9 @@ class StudentDetailsDto {
   @IsOptional() @IsString() ethnicityNo?: string;
 }
 
-// Single-entry student registration form: firstName/lastName ARE collected here
-// (unlike the bulk-upload template, which only has nameWithInitials + fullName).
 export class CreateStudentDto {
-  @IsString() @IsNotEmpty() firstName: string;
-  @IsString() @IsNotEmpty() lastName: string;
   @IsString() @IsNotEmpty() nameWithInitials: string;
-  @IsOptional() @IsString() fullName?: string;
+  @IsString() @IsNotEmpty() fullName: string;
   @IsOptional() @IsString() title?: string;
 
   @IsDateString() dateOfBirth: string;

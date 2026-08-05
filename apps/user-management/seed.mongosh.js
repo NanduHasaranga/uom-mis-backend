@@ -68,15 +68,13 @@ db.bulkUploadBatches.insertMany([
 // --- users -------------------------------------------------------------
 
 db.users.insertMany([
-  // student, pending, single-entry registration form (firstName/lastName +
-  // primaryEmail collected — unlike the bulk template) — covers title,
-  // secondaryEmail, currentAddress, homeTelephoneNo, telephone.
+  // student, pending, single-entry registration form (primaryEmail
+  // collected — unlike the bulk template) — covers title, secondaryEmail,
+  // currentAddress, homeTelephoneNo, telephone.
   {
     userId: 'seed-0001-pending-student',
     role: 'student',
     authStatus: 'pending',
-    firstName: 'Kasun',
-    lastName: 'Silva',
     nameWithInitials: 'K.D. Silva',
     fullName: 'Kasun Dinesh Silva',
     title: 'Mr',
@@ -103,8 +101,8 @@ db.users.insertMany([
     updatedAt: new Date(),
   },
 
-  // student, active, bulk-upload style — no firstName/lastName/email (bulk
-  // template has neither), full studentDetails UGC fields. Covers
+  // student, active, bulk-upload style — no email (bulk template doesn't
+  // have one), full studentDetails UGC fields. Covers
   // registrationDate, faculty, departmentGroup, specialization,
   // meritCategory, districtNo, religionNo, ethnicityNo, title (bulk template
   // *does* have Title), gender=Female.
@@ -205,9 +203,8 @@ db.users.insertMany([
     role: 'staff',
     authStatus: 'active',
     username: 'k.jayawardena',
-    firstName: 'Kamal',
-    lastName: 'Jayawardena',
     nameWithInitials: 'K. Jayawardena',
+    fullName: 'Kamal Jayawardena',
     dateOfBirth: ISODate('1985-11-02'),
     nic: '850560012345',
     primaryEmail: 'kamal.staff.seed@uom.lk',
@@ -230,9 +227,8 @@ db.users.insertMany([
     userId: 'seed-0006-pending-staff',
     role: 'staff',
     authStatus: 'pending',
-    firstName: 'Nimal',
-    lastName: 'Rathnayake',
     nameWithInitials: 'N. Rathnayake',
+    fullName: 'Nimal Rathnayake',
     dateOfBirth: ISODate('1990-03-06'),
     nic: '900660087654',
     primaryEmail: 'nimal.staff.seed@uom.lk',
@@ -253,9 +249,8 @@ db.users.insertMany([
     role: 'admin',
     authStatus: 'active',
     username: 'admin.registrar.seed',
-    firstName: 'Priya',
-    lastName: 'Jayasuriya',
     nameWithInitials: 'P. Jayasuriya',
+    fullName: 'Priya Jayasuriya',
     dateOfBirth: ISODate('1980-04-18'),
     nic: '800880045678',
     primaryEmail: 'registrar.seed@uom.lk',

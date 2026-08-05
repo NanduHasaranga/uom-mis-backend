@@ -149,10 +149,8 @@ erDiagram
         string authStatus "pending | active | failed"
         string keycloakUserId
         string failureReason
-        string firstName
-        string lastName
         string nameWithInitials "required"
-        string fullName
+        string fullName "required"
         string title
         Date dateOfBirth "required"
         string nic UK "required, sparse"
@@ -470,8 +468,6 @@ Base path `/api/v1` (except `/health`). Write endpoints require
 Request body (`CreateStudentDto`):
 ```json
 {
-  "firstName": "Amal",
-  "lastName": "Perera",
   "nameWithInitials": "A.B. Perera",
   "fullName": "Amal Bandara Perera",
   "title": "Mr",
@@ -506,7 +502,7 @@ Request body (`CreateStudentDto`):
   }
 }
 ```
-Required: `firstName`, `lastName`, `nameWithInitials`, `dateOfBirth`, `nic`,
+Required: `nameWithInitials`, `fullName`, `dateOfBirth`, `nic`,
 `primaryEmail`, `studentDetails.{registrationNo, degree, level, department,
 academicYear, administrativeBatch}`. Everything else optional.
 
@@ -560,8 +556,8 @@ Query params: `role`, `authStatus`, `batchId`, `search`, `page` (default 1),
 ### `GET /users/:id` — no auth required
 ### `PUT /users/:id` — admin
 
-Body (`UpdateUserDto`, all optional): `firstName`, `lastName`,
-`nameWithInitials`, `fullName`, `title`, `primaryEmail`, `secondaryEmail`,
+Body (`UpdateUserDto`, all optional): `nameWithInitials`, `fullName`,
+`title`, `primaryEmail`, `secondaryEmail`,
 `gender`, `currentAddress`, `homeTelephoneNo`, `mobileNo`,
 `permanentAddress`, `telephone`. **Not** editable: `username`, `role`,
 `authStatus`.

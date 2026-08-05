@@ -43,10 +43,8 @@ export interface StaffDetailsInput {
 export interface PendingUserInput {
   role: UserRole;
   username?: string | null;
-  firstName?: string;
-  lastName?: string;
   nameWithInitials: string;
-  fullName?: string;
+  fullName: string;
   title?: string;
   dateOfBirth: Date;
   nic: string;
@@ -87,7 +85,7 @@ export class UsersService {
    * publish failure.
    */
   async createPendingUser(input: PendingUserInput): Promise<User> {
-    const fullName = input.fullName ?? deriveFullName(input.firstName, input.lastName);
+    const fullName = input.fullName;
     const userId = randomUUID();
     const secondaryEmail = input.secondaryEmail ?? generateSecondaryEmail(userId);
 
@@ -96,8 +94,6 @@ export class UsersService {
       role: input.role,
       username: input.username ?? undefined,
       authStatus: 'pending',
-      firstName: input.firstName,
-      lastName: input.lastName,
       nameWithInitials: input.nameWithInitials,
       fullName,
       title: input.title,
@@ -230,10 +226,6 @@ export class UsersService {
     if (!user) throw new NotFoundException(`User ${userId} not found`);
     return user;
   }
-}
-
-function deriveFullName(firstName?: string, lastName?: string): string {
-  return [firstName, lastName].filter(Boolean).join(' ').trim();
 }
 
 function escapeRegex(value: string): string {
