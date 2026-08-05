@@ -56,3 +56,15 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /README.md
+docs/free-email-sending-options.md
+docs/notification-email-implementation.md
+docs/rabbitmq-architecture.md
+docs/scratch.md
+.claude
+
+
+docs/rabbitmq-architecture.md
+docs/scratch.md
+docs/free-email-sending-options.md
+docs/notification-email-implementation.md
+.claude

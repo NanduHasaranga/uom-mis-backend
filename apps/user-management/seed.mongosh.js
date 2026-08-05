@@ -145,7 +145,7 @@ db.users.insertMany([
   },
 
   // student, failed — one row of an otherwise-successful bulk batch that
-  // failed post-creation (e.g. the user.registration publish failed) — per
+  // failed post-creation (e.g. the user.register publish failed) — per
   // bulk-upload.service.ts's per-row try/catch, this doesn't abort the rest
   // of the batch.
   {

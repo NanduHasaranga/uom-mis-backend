@@ -6,6 +6,7 @@ import { firstValueFrom } from 'rxjs';
 export class AppService {
   constructor(
     @Inject('AUTH_SERVICE') private readonly authClient: ClientProxy,
+    @Inject('USER_MANAGEMENT_SERVICE') private readonly userManagementClient: ClientProxy,
   ) { }
 
   getHello(): string {
@@ -14,5 +15,9 @@ export class AppService {
 
   async login(body: any) {
     return firstValueFrom(this.authClient.send({ cmd: 'login' }, body))
+  }
+
+  async createUser(body: any) {
+    return firstValueFrom(this.userManagementClient.send({ cmd: 'createUser' }, body));
   }
 }
